@@ -42,6 +42,8 @@ class RenderSummary:
     rendered: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     planned: list[str] = field(default_factory=list)
+    anchored: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)
 
 
 def _resolve_prompt(artifact: Artifact, project: Project) -> str:
@@ -151,12 +153,55 @@ def _collect_ref_paths(
     return paths
 
 
+def _collect_cells_state(written: Path, has_grid: bool) -> dict[str, str]:
+    """Hash all per-cell files under <written.stem>/cells/. Empty if no grid."""
+    cells_state: dict[str, str] = {}
+    if not has_grid:
+        return cells_state
+    cells_dir = written.parent / written.stem / "cells"
+    for cp in sorted(cells_dir.glob("*.jpg")):
+        cells_state[cp.stem] = file_sha256(cp)
+    return cells_state
+
+
+def _now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _out_rel(written: Path, project: Project) -> str:
+    try:
+        return str(written.relative_to(project.yaml_path.parent))
+    except ValueError:
+        return str(written)
+
+
 def run_render(
     project_path: Path | str,
     only: list[str] | None,
     force: list[str] | None,
     dry_run: bool,
+    bootstrap: bool = False,
 ) -> RenderSummary:
+    """Render or bootstrap a project.
+
+    Two modes:
+
+    - **render** (default, `bootstrap=False`): standard topo-sorted render
+      with content-addressed cache. Skips artifacts whose `input_hash`
+      matches state. With `dry_run=True`, plans without calling the API.
+    - **bootstrap** (`bootstrap=True`): anchor existing on-disk outputs to
+      the current manifest's hashes. For each artifact whose `out:` exists,
+      compute the manifest's `input_hash` and the file's `output_hash` and
+      write that entry to state — *no API calls*. Pendings (artifacts whose
+      `out:` is missing) are reported in `summary.pending` but not rendered.
+      Use this to migrate an existing image set under mosaico's cache, or to
+      re-anchor after a prompt refactor that doesn't intend to re-render.
+      With `dry_run=True`, the anchor pass runs in memory and state is not
+      written.
+
+    `bootstrap=True` is incompatible with `force` (bootstrap anchors;
+    force re-renders — use them in separate calls).
+    """
     project_path = Path(project_path)
     try:
         project = parse_project(project_path)
@@ -169,6 +214,14 @@ def run_render(
         ordered = _restrict_to_only(ordered, only, by_id)
 
     state = load_state(project.state_path)
+
+    if bootstrap and force:
+        m.fail(
+            "--bootstrap is incompatible with --force: bootstrap anchors "
+            "existing files to the current manifest, force discards state to "
+            "re-render. Run them separately if you need both. "
+            "Run `mosaico render --tour` for the format."
+        )
 
     if force:
         if "all" in force:
@@ -186,6 +239,40 @@ def run_render(
                 state["artifacts"].pop(fid, None)
 
     summary = RenderSummary()
+
+    if bootstrap:
+        for artifact in ordered:
+            try:
+                ihash, _ = _input_hash_for(artifact, project, state)
+            except SchemaError as e:
+                m.fail(str(e))
+
+            out_abs = project.out_root / artifact.out
+            if not out_abs.exists():
+                summary.pending.append(artifact.id)
+                continue
+
+            output_hash = file_sha256(out_abs)
+            existing = state["artifacts"].get(artifact.id, {})
+            preserve = (
+                existing.get("output_hash") == output_hash
+                and existing.get("rendered_at")
+            )
+            state["artifacts"][artifact.id] = {
+                "input_hash": ihash,
+                "output_hash": output_hash,
+                "model": artifact.resolved_model,
+                "seed": artifact.resolved_seed,
+                "rendered_at": preserve or _now_iso(),
+                "out": _out_rel(out_abs, project),
+                "cells": _collect_cells_state(out_abs, artifact.grid is not None),
+            }
+            summary.anchored.append(artifact.id)
+
+        if not dry_run:
+            save_state(project.state_path, state)
+
+        return summary
 
     for artifact in ordered:
         try:
@@ -216,26 +303,14 @@ def run_render(
             aspect=artifact.resolved_aspect,
         )
 
-        cells_state = {}
-        if artifact.grid:
-            cells_dir = written.parent / written.stem / "cells"
-            for cp in sorted(cells_dir.glob("*.jpg")):
-                cells_state[cp.stem] = file_sha256(cp)
-
-        try:
-            out_rel = str(written.relative_to(project.yaml_path.parent))
-        except ValueError:
-            out_rel = str(written)
-
         state["artifacts"][artifact.id] = {
             "input_hash": ihash,
             "output_hash": file_sha256(written),
             "model": artifact.resolved_model,
             "seed": artifact.resolved_seed,
-            "rendered_at": dt.datetime.now(dt.timezone.utc)
-                            .replace(microsecond=0).isoformat(),
-            "out": out_rel,
-            "cells": cells_state,
+            "rendered_at": _now_iso(),
+            "out": _out_rel(written, project),
+            "cells": _collect_cells_state(written, artifact.grid is not None),
         }
         summary.rendered.append(artifact.id)
 
@@ -257,6 +332,13 @@ def _print_summary(summary: RenderSummary, planned_label: bool) -> None:
             print(f"  [skip  ] {aid}")
 
 
+def _print_bootstrap_summary(summary: RenderSummary) -> None:
+    for aid in summary.anchored:
+        print(f"  [anchor]  {aid}")
+    for aid in summary.pending:
+        print(f"  [pending] {aid} — out missing on disk")
+
+
 @app.command
 def render(
     project: Annotated[str, "Path to the project YAML"],
@@ -264,6 +346,10 @@ def render(
     force: Annotated[str, "Ignore cache for these ids; or `all` to wipe"] = "",
     dry_run: Annotated[bool, "Print plan, render nothing"] = False,
     save: Annotated[bool, "Required to actually render (microcli two-phase)"] = False,
+    bootstrap: Annotated[
+        bool,
+        "Anchor existing on-disk outputs to current manifest hashes (no API)",
+    ] = False,
 ):
     """Render a visual project from a YAML manifest.
 
@@ -273,16 +359,56 @@ def render(
     Without --save (and without --dry-run): prints what would render but
     doesn't call the API. Equivalent to --dry-run for safety.
 
+    With --bootstrap: anchors existing on-disk outputs to the current
+    manifest's hashes — no API calls. Use to migrate an existing image set
+    under mosaico's cache or to re-anchor after a prompt refactor that
+    shouldn't trigger re-render. With --bootstrap --save: anchor first,
+    then render any pending (missing-on-disk) artifacts.
+
     Examples:
       mosaico render project.yml --dry-run
       mosaico render project.yml --save
       mosaico render project.yml --only chapter-01-cover --save
       mosaico render project.yml --force all --save
+      mosaico render project.yml --bootstrap          # anchor existing files
+      mosaico render project.yml --bootstrap --dry-run  # preview anchor pass
+      mosaico render project.yml --bootstrap --save   # anchor + render new
     """
     only_list = [s.strip() for s in only.split(",") if s.strip()] or None
     force_list = [s.strip() for s in force.split(",") if s.strip()] or None
 
-    if not save and not dry_run:
+    if bootstrap and force_list:
+        m.fail(
+            "--bootstrap is incompatible with --force. Bootstrap anchors "
+            "existing files; force discards state to re-render. Run them "
+            "separately."
+        )
+
+    if bootstrap:
+        summary = run_render(
+            project, only_list, None, dry_run=dry_run, bootstrap=True
+        )
+        _print_bootstrap_summary(summary)
+        if dry_run:
+            m.info(
+                f"bootstrap (dry-run): would anchor {len(summary.anchored)}, "
+                f"leave {len(summary.pending)} pending"
+            )
+        else:
+            m.ok(
+                f"bootstrap: {len(summary.anchored)} anchored, "
+                f"{len(summary.pending)} pending"
+            )
+        if not save:
+            return
+        if not summary.pending:
+            m.info("nothing pending; --save has nothing to render after bootstrap.")
+            return
+        m.info(
+            f"--save: rendering {len(summary.pending)} pending artifact(s)…"
+        )
+
+    if not save and not dry_run and not bootstrap:
         m.info("Default mode is plan-only (no API calls). Showing plan…")
         summary = run_render(project, only_list, force_list, dry_run=True)
         _print_summary(summary, planned_label=True)

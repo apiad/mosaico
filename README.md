@@ -49,6 +49,32 @@ templates:
 mosaico render project.yml --save
 ```
 
+## Migrating existing images under mosaico
+
+If you already have generated images on disk and want to bring them under
+mosaico's cache without re-rendering, use `--bootstrap`:
+
+```bash
+# Preview what would be anchored (dry-run, no state write)
+mosaico render project.yml --bootstrap --dry-run
+
+# Anchor existing files to the current manifest's hashes
+mosaico render project.yml --bootstrap
+
+# Anchor existing files, then render anything still missing on disk
+mosaico render project.yml --bootstrap --save
+```
+
+For each artifact whose `out:` already exists, mosaico computes the
+manifest's `input_hash` and the file's `output_hash` and writes that
+entry to state — no API call. Pendings (artifacts whose `out:` is missing)
+are reported but not rendered unless `--save` is also passed.
+
+`--bootstrap` is also the right tool for **prompt refactors that shouldn't
+trigger a re-render**: edit the manifest, run `--bootstrap`, and the new
+`input_hash` is anchored to the existing output. A subsequent
+`mosaico render --save` will see zero pending and call no API.
+
 ## Token discovery
 
 `mosaico gen` reads its OpenRouter token from, in order:

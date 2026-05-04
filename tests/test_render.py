@@ -135,6 +135,148 @@ def test_render_template_change_invalidates(project_yaml, monkeypatch):
     assert "a" in summary.rendered
 
 
+def test_bootstrap_anchors_existing_files_without_api(project_yaml, monkeypatch):
+    """Pre-existing on-disk outputs are anchored to current manifest hashes;
+    run_gen is never called."""
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    (out_dir / "b.jpg").write_bytes(b"\xff\xd8\xff" + b"BBB" * 50)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_gen must not be called during --bootstrap")
+
+    monkeypatch.setattr(render_mod, "run_gen", fail_if_called)
+    summary = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    assert sorted(summary.anchored) == ["a", "b"]
+    assert summary.pending == []
+    assert summary.rendered == []
+
+    # Subsequent regular render is fully cached.
+    monkeypatch.setattr(render_mod, "run_gen", _mock_generator)
+    summary2 = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False
+    )
+    assert summary2.rendered == []
+    assert sorted(summary2.skipped) == ["a", "b"]
+
+
+def test_bootstrap_partial_existence_marks_missing_as_pending(
+        project_yaml, monkeypatch):
+    """When some outputs exist and others don't, the existing ones get
+    anchored and the missing ones land in pending."""
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    # b.jpg is intentionally missing.
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_gen must not be called during --bootstrap")
+
+    monkeypatch.setattr(render_mod, "run_gen", fail_if_called)
+    summary = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    assert summary.anchored == ["a"]
+    assert summary.pending == ["b"]
+
+    # After bootstrap, a regular render should render only b.
+    monkeypatch.setattr(render_mod, "run_gen", _mock_generator)
+    summary2 = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False
+    )
+    assert summary2.rendered == ["b"]
+    assert summary2.skipped == ["a"]
+
+
+def test_bootstrap_is_idempotent_and_preserves_rendered_at(
+        project_yaml, monkeypatch):
+    """Re-running bootstrap on an already-anchored state preserves
+    rendered_at when the output_hash hasn't changed."""
+    import json
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    (out_dir / "b.jpg").write_bytes(b"\xff\xd8\xff" + b"BBB" * 50)
+
+    monkeypatch.setattr(render_mod, "run_gen", _mock_generator)
+    render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    state_path = project_yaml.parent / "state.json"
+    first = json.loads(state_path.read_text())
+    first_a_at = first["artifacts"]["a"]["rendered_at"]
+
+    render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    second = json.loads(state_path.read_text())
+    assert second["artifacts"]["a"]["rendered_at"] == first_a_at
+    assert second["artifacts"]["a"]["input_hash"] == first["artifacts"]["a"]["input_hash"]
+
+
+def test_bootstrap_dry_run_does_not_write_state(project_yaml, monkeypatch):
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    (out_dir / "b.jpg").write_bytes(b"\xff\xd8\xff" + b"BBB" * 50)
+
+    summary = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=True, bootstrap=True
+    )
+    assert sorted(summary.anchored) == ["a", "b"]
+    state_path = project_yaml.parent / "state.json"
+    assert not state_path.exists()
+
+
+def test_bootstrap_with_force_fails(project_yaml, monkeypatch):
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    with pytest.raises(SystemExit):
+        render_mod.run_render(
+            project_yaml, only=None, force=["a"], dry_run=False, bootstrap=True
+        )
+
+
+def test_bootstrap_re_anchors_after_prompt_refactor(project_yaml, monkeypatch):
+    """Editing a template after bootstrap then re-bootstrapping anchors the
+    existing file to the new prompt's hash — no re-render needed."""
+    import json
+    out_dir = project_yaml.parent / "out"
+    out_dir.mkdir(parents=True)
+    (out_dir / "a.jpg").write_bytes(b"\xff\xd8\xff" + b"AAA" * 50)
+    (out_dir / "b.jpg").write_bytes(b"\xff\xd8\xff" + b"BBB" * 50)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_gen must not be called during --bootstrap")
+
+    monkeypatch.setattr(render_mod, "run_gen", fail_if_called)
+    render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    state_path = project_yaml.parent / "state.json"
+    first_hash = json.loads(state_path.read_text())["artifacts"]["a"]["input_hash"]
+
+    text = project_yaml.read_text().replace('x: "ALPHA"', 'x: "OMEGA"')
+    project_yaml.write_text(text)
+
+    render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False, bootstrap=True
+    )
+    second_hash = json.loads(state_path.read_text())["artifacts"]["a"]["input_hash"]
+    assert first_hash != second_hash, "input_hash should reflect new template"
+
+    monkeypatch.setattr(render_mod, "run_gen", _mock_generator)
+    summary = render_mod.run_render(
+        project_yaml, only=None, force=None, dry_run=False
+    )
+    assert summary.rendered == []
+    assert sorted(summary.skipped) == ["a", "b"]
+
+
 def test_render_external_path_ref_missing_fails(tmp_path, monkeypatch):
     p = tmp_path / "p.yml"
     p.write_text("""
