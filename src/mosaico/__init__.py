@@ -20,5 +20,6 @@ app = m.App(
 # any `import mosaico` populates the registry exactly once.
 from . import gen  # noqa: E402, F401
 from . import render  # noqa: E402, F401
+from . import explain  # noqa: E402, F401
 
 __all__ = ["app"]

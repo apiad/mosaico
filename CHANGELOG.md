@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0] - 2026-05-04
+
+### Added
+
+- `mosaico explain <project.yml>` — read-only inspection command that
+  prints, for each artifact in topo order: status (ready / render / stale),
+  output path, model/seed/aspect, refs with their upstream hashes, and the
+  *fully resolved* prompt that would be sent to the API (templates expanded,
+  ref-hint block appended). Use to validate the manifest before any render.
+- `mosaico explain <project.yml> --only id1,id2` — restrict to specific
+  artifacts (transitive deps included, same semantics as `render --only`).
+
+### Use cases
+
+- Confirm template expansion works as intended.
+- Audit ref wiring before generating images.
+- Inspect why an artifact is `[render]` vs `[ready]` (input_hash compared
+  against state).
+
 ## [0.2.0] - 2026-05-04
 
 ### Added
