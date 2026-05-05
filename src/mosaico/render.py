@@ -47,16 +47,33 @@ class RenderSummary:
 
 
 def _resolve_prompt(artifact: Artifact, project: Project) -> str:
-    """Expand templates and append the deterministic ref-hint block."""
+    """Expand templates and prepend the explicit Image-N declaration block.
+
+    The block uses the convention the multimodal image-gen models
+    (Nano Banana / Gemini Image and similar) actually associate with the
+    attached image_url payloads: ``Image 1: ...`` / ``Image 2: ...`` declared
+    BEFORE the body. Append-style ``Reference N: ...`` after the body
+    consistently produces lower fidelity to the references — the model
+    treats the refs as decoration. Prepend with explicit per-image instructions
+    locks character/style consistency to the attached images.
+    """
     body = expand_templates(artifact.prompt_template, project.templates)
-    if artifact.refs:
-        ref_lines = []
-        for i, r in enumerate(artifact.refs, 1):
-            label = r.artifact if r.artifact else r.path
-            hint = r.hint or "(no hint)"
-            ref_lines.append(f"Reference {i} ({label}): {hint}")
-        body = body + "\n\n" + "\n".join(ref_lines)
-    return body
+    if not artifact.refs:
+        return body
+
+    header = (
+        f"Use the following {len(artifact.refs)} attached image(s) as visual "
+        f"references. For each one, follow the per-image instruction below "
+        f"EXACTLY — preserve faces, bodies, palette, medium, wardrobe and "
+        f"composition cues from the referenced images. Do NOT invent "
+        f"different characters or styles than what the references show."
+    )
+    ref_lines = []
+    for i, r in enumerate(artifact.refs, 1):
+        label = r.artifact if r.artifact else r.path
+        hint = r.hint or "use as visual anchor"
+        ref_lines.append(f"Image {i} ({label}): {hint}")
+    return header + "\n\n" + "\n".join(ref_lines) + "\n\n---\n\n" + body
 
 
 def _ref_hashes(

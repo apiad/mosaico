@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0] - 2026-05-04
+
+### Changed
+
+- **Resolved-prompt format: `Image N (label): hint` declarations now PREPEND
+  the body** with a directive header, instead of `Reference N: ...` appended
+  after. The append-style block was producing low fidelity to the attached
+  references — multimodal image-gen models (Nano Banana / Gemini Image)
+  treated refs as decoration rather than character/style anchors. The new
+  format mirrors the convention these models actually associate with the
+  attached `image_url` payloads:
+
+      Use the following N attached image(s) as visual references. For each
+      one, follow the per-image instruction below EXACTLY — preserve faces,
+      bodies, palette, medium, wardrobe and composition cues from the
+      referenced images. Do NOT invent different characters or styles than
+      what the references show.
+
+      Image 1 (style-reference): style anchor — preserve medium and palette
+      Image 2 (hermanas-sheet): canonical faces and bodies
+
+      ---
+
+      [body of prompt]
+
+  This change invalidates the `input_hash` of every artifact that has refs.
+  Run `mosaico render <project.yml> --bootstrap` after upgrading to re-anchor
+  existing outputs to the new hashes (re-anchoring does not call the API).
+
 ## [0.3.0] - 2026-05-04
 
 ### Added

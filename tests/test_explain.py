@@ -42,7 +42,7 @@ def test_explain_prints_topo_order_with_resolved_prompts(
     b_pos = captured.index("┌─ b  [")
     assert a_pos < b_pos, "topo order: a precedes b"
     assert "first ALPHA" in captured, "template should be expanded"
-    assert "Reference 1 (a):" in captured, "ref hint block present in b"
+    assert "Image 1 (a):" in captured, "ref-image block present in b"
     assert "use as backdrop" in captured
 
 
