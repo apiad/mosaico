@@ -56,7 +56,7 @@ def test_explain_status_render_when_state_empty(project_yaml, capsys):
 def test_explain_status_ready_after_render(project_yaml, monkeypatch, capsys):
     import hashlib
 
-    def mock_gen(prompt, out, refs, grid, cell_names, model, seed, aspect):
+    def mock_gen(prompt, out, refs, grid, cells, model, seed, aspect):
         h = hashlib.sha256(f"{prompt}|{seed}".encode()).digest()
         out_path = out.with_suffix(".jpg")
         out_path.parent.mkdir(parents=True, exist_ok=True)

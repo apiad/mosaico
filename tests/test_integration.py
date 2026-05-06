@@ -46,7 +46,7 @@ artifacts:
     return p
 
 
-def _gen(prompt, out, refs, grid, cell_names, model, seed, aspect):
+def _gen(prompt, out, refs, grid, cells, model, seed, aspect):
     """Deterministic mock generator: writes prompt-sha256 as JPEG bytes."""
     h = hashlib.sha256(prompt.encode()).digest()
     out_path = out.with_suffix(".jpg")

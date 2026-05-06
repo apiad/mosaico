@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.4.1] - 2026-05-06
+
+### Fixed
+
+- **`render` now propagates `artifact.cells` to the cropper.** When a
+  project-YAML artifact declared both `grid:` and `cells:` (mapping
+  `slug -> {row, col}`), the `cells` dict was loaded from YAML but
+  `render.py` called `run_gen(..., cell_names=None)`, so cropped cells
+  were written with generic names (`cell-rR-cC.jpg`) instead of the
+  declared slugs. Discovered while generating the cap. 5.1 glossary in
+  the enciclopedia repo.
+
+### Changed
+
+- **`run_gen` signature: `cell_names: list[str] | None` -> `cells: dict[str, dict] | None`.**
+  Single shape end-to-end: the artifact-level `cells:` dict (slug ->
+  `{row, col, rowspan?, colspan?}`) is what the cropper accepts, and
+  `run_gen` now passes it through unchanged. The flat-list ergonomic form
+  is still exposed via the `--cell-names` CLI option on `mosaico gen`,
+  but conversion + count validation now happen at the CLI layer (in
+  `gen()`), not inside `run_gen`.
+
+  Internal API change. External consumers calling `run_gen` directly with
+  `cell_names=...` must rename to `cells=...` and convert flat lists to
+  the dict shape themselves (or use the `gen` CLI which still handles
+  `--cell-names` ergonomics).
+
+- **Output convention reaffirmed.** Cells continue to land at
+  `<sheet-stem>/cells/<slug>.jpg` (subdirectory under the sheet's stem),
+  not flat alongside the sheet. This was already the established
+  convention; documenting here to settle the question raised during the
+  bug discovery.
+
 ## [0.4.0] - 2026-05-04
 
 ### Changed

@@ -314,7 +314,7 @@ def run_render(
             out=out_abs,
             refs=_collect_ref_paths(artifact, project, state),
             grid=artifact.grid,
-            cell_names=None,
+            cells=artifact.cells,
             model=artifact.resolved_model,
             seed=artifact.resolved_seed,
             aspect=artifact.resolved_aspect,

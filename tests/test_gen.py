@@ -28,7 +28,7 @@ def test_gen_writes_jpeg(tmp_path, monkeypatch):
     monkeypatch.setattr(gen_mod, "load_token", lambda: "T")
     out = tmp_path / "out.png"
     written = gen_mod.run_gen(prompt="hello", out=out, refs=[], grid=None,
-                              cell_names=None, model="m", seed=None,
+                              cells=None, model="m", seed=None,
                               aspect=None)
     assert written.suffix == ".jpg"
     assert written.exists()
@@ -40,7 +40,7 @@ def test_gen_extension_correction_to_png(tmp_path, monkeypatch):
     monkeypatch.setattr(gen_mod, "load_token", lambda: "T")
     out = tmp_path / "out.jpg"
     written = gen_mod.run_gen(prompt="x", out=out, refs=[], grid=None,
-                              cell_names=None, model="m", seed=None,
+                              cells=None, model="m", seed=None,
                               aspect=None)
     assert written.suffix == ".png"
 
@@ -65,13 +65,16 @@ def test_gen_with_grid_writes_cells(tmp_path, monkeypatch):
 
     out = tmp_path / "sheet.jpg"
     written = gen_mod.run_gen(prompt="x", out=out, refs=[], grid=(3, 3),
-                              cell_names=None, model="m", seed=None,
+                              cells=None, model="m", seed=None,
                               aspect=None)
     assert written == out.with_suffix(".jpg")
     assert cells_written[0][1] == out.parent / "sheet" / "cells"
 
 
-def test_gen_grid_with_cell_names(tmp_path, monkeypatch):
+def test_run_gen_passes_cells_dict_through(tmp_path, monkeypatch):
+    """Regression: render.py passes artifact.cells through to run_gen, which
+    must hand it to cut_grid unmodified so cells land at the declared slugs.
+    """
     monkeypatch.setattr(gen_mod, "call_openrouter", _fake_openrouter(JPEG_BYTES))
     monkeypatch.setattr(gen_mod, "load_token", lambda: "T")
     captured = {}
@@ -80,24 +83,16 @@ def test_gen_grid_with_cell_names(tmp_path, monkeypatch):
         out_dir.mkdir(parents=True, exist_ok=True)
         return []
     monkeypatch.setattr(gen_mod, "cut_grid", fake_cut_grid)
-    out = tmp_path / "sheet.jpg"
-    gen_mod.run_gen(prompt="x", out=out, refs=[], grid=(2, 2),
-                    cell_names=["a", "b", "c", "d"],
-                    model="m", seed=None, aspect=None)
-    assert captured["cells"] == {
-        "a": {"row": 0, "col": 0}, "b": {"row": 0, "col": 1},
-        "c": {"row": 1, "col": 0}, "d": {"row": 1, "col": 1},
+    declared = {
+        "alpha": {"row": 0, "col": 0},
+        "beta":  {"row": 0, "col": 1},
+        "gamma": {"row": 1, "col": 0},
+        "delta": {"row": 1, "col": 1},
     }
-
-
-def test_gen_grid_cell_names_count_mismatch_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(gen_mod, "call_openrouter", _fake_openrouter(JPEG_BYTES))
-    monkeypatch.setattr(gen_mod, "load_token", lambda: "T")
-    monkeypatch.setattr(gen_mod, "cut_grid", lambda *a, **k: [])
-    with pytest.raises(SystemExit):
-        gen_mod.run_gen(prompt="x", out=tmp_path / "s.jpg", refs=[],
-                        grid=(3, 3), cell_names=["a", "b"],
-                        model="m", seed=None, aspect=None)
+    gen_mod.run_gen(prompt="x", out=tmp_path / "sheet.jpg", refs=[],
+                    grid=(2, 2), cells=declared,
+                    model="m", seed=None, aspect=None)
+    assert captured["cells"] == declared
 
 
 def test_gen_missing_token_fails_with_actionable_message(tmp_path, monkeypatch):
@@ -108,7 +103,7 @@ def test_gen_missing_token_fails_with_actionable_message(tmp_path, monkeypatch):
     out = tmp_path / "out.jpg"
     with pytest.raises(SystemExit):
         gen_mod.run_gen(prompt="x", out=out, refs=[], grid=None,
-                        cell_names=None, model="m", seed=None, aspect=None)
+                        cells=None, model="m", seed=None, aspect=None)
 
 
 def test_gen_missing_ref_fails(tmp_path, monkeypatch):
@@ -117,5 +112,5 @@ def test_gen_missing_ref_fails(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         gen_mod.run_gen(prompt="x", out=tmp_path / "o.jpg",
                         refs=[tmp_path / "missing.jpg"],
-                        grid=None, cell_names=None,
+                        grid=None, cells=None,
                         model="m", seed=None, aspect=None)

@@ -154,16 +154,18 @@ def run_gen(
     out: Path,
     refs: list[Path],
     grid: tuple[int, int] | None,
-    cell_names: list[str] | None,
+    cells: dict[str, dict] | None,
     model: str | None,
     seed: int | None,
     aspect: str | None,
 ) -> Path:
     """Pure function: do the gen. Returns the resolved out path.
 
-    `cell_names`, when provided with a grid, becomes a default cells map
-    `{name_i: {row: r, col: c}}` in row-major order. Length must equal
-    rows*cols.
+    `cells`, when provided with a grid, is the explicit slug -> {row, col,
+    rowspan?, colspan?} mapping passed straight to the cropper. When None
+    with a grid, the cropper falls back to its default `cell-rR-cC` naming.
+    The flat-list ergonomic form (CLI's `--cell-names`) is converted to this
+    dict shape at the call site (see `gen()` CLI below).
     """
     # Validate refs eagerly so a missing path fails before the API call.
     for r in refs:
@@ -191,23 +193,8 @@ def run_gen(
           file=sys.stderr)
 
     if grid is not None:
-        rows, cols = grid
         cells_dir = out_path.parent / out_path.stem / "cells"
-        cells_map: dict[str, dict] | None = None
-        if cell_names:
-            if len(cell_names) != rows * cols:
-                m.fail(
-                    f"--cell-names has {len(cell_names)} entries but grid "
-                    f"{rows}x{cols} expects {rows * cols}. "
-                    f"Either drop --cell-names (defaults to cell-rR-cC) or "
-                    f"match the count exactly. "
-                    f"See `mosaico gen --tour`."
-                )
-            cells_map = {
-                name: {"row": i // cols, "col": i % cols}
-                for i, name in enumerate(cell_names)
-            }
-        cut_grid(out_path, cells_dir, grid=grid, cells=cells_map)
+        cut_grid(out_path, cells_dir, grid=grid, cells=cells)
 
     return out_path
 
@@ -250,6 +237,27 @@ def gen(
         if cell_names else None
     )
 
+    cells_map: dict[str, dict] | None = None
+    if cell_names_list:
+        if grid_tuple is None:
+            m.fail(
+                "--cell-names requires --grid. "
+                "Run `mosaico gen --tour` for examples."
+            )
+        rows, cols = grid_tuple
+        if len(cell_names_list) != rows * cols:
+            m.fail(
+                f"--cell-names has {len(cell_names_list)} entries but grid "
+                f"{rows}x{cols} expects {rows * cols}. "
+                f"Either drop --cell-names (defaults to cell-rR-cC) or "
+                f"match the count exactly. "
+                f"See `mosaico gen --tour`."
+            )
+        cells_map = {
+            name: {"row": i // cols, "col": i % cols}
+            for i, name in enumerate(cell_names_list)
+        }
+
     if not save:
         m.info(f"Draft: would generate {grid_tuple or '1 image'} from prompt "
                f"({len(prompt)} chars), {len(refs)} ref(s), model={model}")
@@ -262,7 +270,7 @@ def gen(
         out=Path(out),
         refs=refs,
         grid=grid_tuple,
-        cell_names=cell_names_list,
+        cells=cells_map,
         model=model or None,
         seed=seed or None,
         aspect=aspect or None,

@@ -7,7 +7,7 @@ import pytest
 from mosaico import render as render_mod
 
 
-def _mock_generator(prompt, out, refs, grid, cell_names, model, seed, aspect):
+def _mock_generator(prompt, out, refs, grid, cells, model, seed, aspect):
     """Deterministic mock: writes prompt+seed sha256 as JPEG-magic bytes."""
     h = hashlib.sha256(f"{prompt}|{seed}".encode()).digest()
     out_path = out.with_suffix(".jpg")
@@ -73,7 +73,7 @@ def test_render_force_upstream_cascades_when_output_changes(
         project_yaml, monkeypatch):
     counter = {"n": 0}
 
-    def changing_generator(prompt, out, refs, grid, cell_names, model, seed, aspect):
+    def changing_generator(prompt, out, refs, grid, cells, model, seed, aspect):
         counter["n"] += 1
         out_path = out.with_suffix(".jpg")
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -275,6 +275,53 @@ def test_bootstrap_re_anchors_after_prompt_refactor(project_yaml, monkeypatch):
     )
     assert summary.rendered == []
     assert sorted(summary.skipped) == ["a", "b"]
+
+
+def test_render_propagates_cells_to_run_gen(tmp_path, monkeypatch):
+    """Regression for the cells: propagation bug. When an artifact declares
+    `grid:` + `cells:`, render.py must pass that cells dict through to
+    run_gen so the cropper writes per-slug filenames (not generic
+    `cell-rR-cC` defaults)."""
+    p = tmp_path / "p.yml"
+    p.write_text("""
+version: 1
+name: t
+defaults:
+  out_root: out
+  state: state.json
+artifacts:
+  - id: sheet
+    prompt_template: "a sheet"
+    out: sheet.jpg
+    grid: [2, 2]
+    cells:
+      alpha: {row: 0, col: 0}
+      beta:  {row: 0, col: 1}
+      gamma: {row: 1, col: 0}
+      delta: {row: 1, col: 1}
+""")
+
+    captured = {}
+
+    def capturing_gen(prompt, out, refs, grid, cells, model, seed, aspect):
+        captured["grid"] = grid
+        captured["cells"] = cells
+        out_path = out.with_suffix(".jpg")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)
+        return out_path
+
+    monkeypatch.setattr(render_mod, "run_gen", capturing_gen)
+    summary = render_mod.run_render(p, only=None, force=None, dry_run=False)
+
+    assert summary.rendered == ["sheet"]
+    assert captured["grid"] == (2, 2)
+    assert captured["cells"] == {
+        "alpha": {"row": 0, "col": 0},
+        "beta":  {"row": 0, "col": 1},
+        "gamma": {"row": 1, "col": 0},
+        "delta": {"row": 1, "col": 1},
+    }
 
 
 def test_render_external_path_ref_missing_fails(tmp_path, monkeypatch):
