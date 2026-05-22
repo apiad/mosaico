@@ -1,0 +1,32 @@
+warning: `VIRTUAL_ENV=/home/apiad/Workspace/repos/manifoldx/.venv` does not match the project environment path `/home/apiad/Workspace/repos/mosaico/.venv` and will be ignored
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/style-reference.png (1628985 bytes) in 6.4s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-style-sheet.png (1679541 bytes) in 9.1s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-character-sheet.png (1447215 bytes) in 18.1s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-01-viejo-lobo-de-mar.png (1663555 bytes) in 11.4s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-02-mapa-y-hispaniola.png (1716132 bytes) in 18.4s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-03-barril-de-manzanas.png (1774382 bytes) in 11.4s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-04-isla-de-pesadilla.png (1633083 bytes) in 13.9s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-05-ben-gunn.png (1895012 bytes) in 12.2s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-06-cable-del-ancla.png (1701807 bytes) in 11.6s  cost=$0.0
+wrote /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-cover.png (1866396 bytes) in 12.0s  cost=$0.0
+[0;36m→ render style-reference -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/style-reference.png[0m
+[0;36m→ render stevenson-style-sheet -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-style-sheet.png[0m
+[0;36m→ render stevenson-character-sheet -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-character-sheet.png[0m
+[0;36m→ render stevenson-01-viejo-lobo-de-mar -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-01-viejo-lobo-de-mar.png[0m
+[0;36m→ render stevenson-02-mapa-y-hispaniola -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-02-mapa-y-hispaniola.png[0m
+[0;36m→ render stevenson-03-barril-de-manzanas -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-03-barril-de-manzanas.png[0m
+[0;36m→ render stevenson-04-isla-de-pesadilla -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-04-isla-de-pesadilla.png[0m
+[0;36m→ render stevenson-05-ben-gunn -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-05-ben-gunn.png[0m
+[0;36m→ render stevenson-06-cable-del-ancla -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-06-cable-del-ancla.png[0m
+[0;36m→ render stevenson-cover -> /home/apiad/Workspace/repos/mosaico/contrib/flux-shim/experiment-2026-05-22/img/stevenson-cover.png[0m
+  [render] style-reference
+  [render] stevenson-style-sheet
+  [render] stevenson-character-sheet
+  [render] stevenson-01-viejo-lobo-de-mar
+  [render] stevenson-02-mapa-y-hispaniola
+  [render] stevenson-03-barril-de-manzanas
+  [render] stevenson-04-isla-de-pesadilla
+  [render] stevenson-05-ben-gunn
+  [render] stevenson-06-cable-del-ancla
+  [render] stevenson-cover
+[0;32m✓ render complete: 10 new, 0 cached[0m

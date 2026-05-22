@@ -1,0 +1,229 @@
+version: 1
+name: flux-shim-stevenson-experiment
+
+defaults:
+  out_root: .
+  state: .mosaico/state.json
+  model: flux-2-klein-4b
+  seed: 42
+  aspect: "16:9"
+
+# Extracted from repos/long-stories-short/mosaico.yml — Stevenson sub-graph
+# minus stevenson-07-tesoro-vacio, to land at exactly 10 renders for a
+# klein-vs-gemini comparison. Prompts are verbatim from the source so the
+# only variable is the renderer.
+
+templates:
+  style: |
+    Illustration register for a children's-book audience aged 6-12.
+    Inked digital painting: confident hand-drawn linework with painterly
+    color fills, saturated but not garish palette, expressive characters
+    with weight and posture, cinematic compositions with depth and
+    atmosphere, visible brush and pencil texture in the shading. Dynamic
+    lighting and a sense of place. NOT toddler-pop, NOT Pixar 3D, NOT
+    flat vector, NOT photoreal, NOT anime. Reference register: Brett
+    Helquist (Series of Unfortunate Events), Carson Ellis, S.D.
+    Schindler, Christian Birmingham — illustrators of "real" children's
+    literature with serious narrative weight.
+
+  no_text: |
+    NO text, NO labels, NO numbers, NO writing of any kind in the image.
+
+  with_title_block: |
+    The book's title appears as hand-lettered display lettering integrated
+    into the upper third of the composition — bold, legible, decorative,
+    in a typeface that fits the period and tone of the story. Below it,
+    smaller, the author and collection line.
+
+artifacts:
+
+  - id: style-reference
+    prompt_template: |
+      Project style reference sheet for a children's-book illustration
+      collection. A composite swatch on a single sheet that demonstrates
+      the project's visual register: a young face in three-quarter view,
+      a pair of hands gripping an object, fabric folds at a sleeve cuff,
+      foliage detail, a wood/metal texture, atmospheric lighting on a
+      stone wall. Arrange the sub-panels so the medium, palette, linework
+      and shading approach are unambiguous and reusable as anchor.
+      {{ templates.style }} {{ templates.no_text }}
+    out: img/style-reference.png
+    aspect: "1:1"
+
+  - id: stevenson-style-sheet
+    prompt_template: |
+      Style sheet for the visual world of "La Isla del Tesoro": a
+      composite swatch demonstrating book-specific objects, materials,
+      and locations, all rendered in the project register. Include:
+      a tin lantern with warm flame, a folded sun-bleached treasure
+      map with compass rose, a tricorn hat next to a wooden crutch, a
+      cutlass and a flintlock pistol, a tarred wooden ship's deck with
+      coiled rope, a parrot's wing detail (red-yellow-green), a tropical
+      shoreline with palms at dusk, the timber stockade of a fortin,
+      a pewter mug of dark rum. Calibrate the palette for warm sunset
+      tones — gold, ember, deep sea-blue, parchment-cream, weathered
+      wood-brown.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: style-reference
+        hint: project-wide style anchor — preserve medium and linework
+    out: img/stevenson-style-sheet.png
+    aspect: "1:1"
+
+  - id: stevenson-character-sheet
+    prompt_template: |
+      Character reference sheet for "La Isla del Tesoro". Five primary
+      characters, each rendered large in three-quarter view with a
+      single defining pose; below, in a smaller strip, three secondary
+      characters. All faces and bodies must remain canonical across all
+      future scene illustrations.
+      Primary (large):
+      - Jim Hawkins: boy of about twelve, sandy-light hair falling over
+        forehead, alert curious face with light freckles, ragged shirt
+        collar open at the neck, simple breeches, scuffed leather shoes.
+      - Long John Silver: tall man in his fifties, ONE LEG with a
+        wooden crutch under his left arm (his left leg is missing
+        below the knee), broad cheerful face, intelligent watchful
+        eyes, neatly tied dark hair under a wide tricorn hat, blue
+        coat over a striped seaman's shirt; a green parrot perches on
+        his shoulder. NO eyepatch, NO hook — that is Disney, not
+        Stevenson.
+      - Billy Bones: weather-beaten old captain, dark tanned skin, a
+        white sabre scar across one cheek, dirty seaman's coat, brass
+        spyglass, gnarled hands.
+      - Doctor Livesey: lean middle-aged man, neat powdered wig, fine
+        dark coat, calm precise expression, a physician's hands.
+      - Ben Gunn: gaunt castaway with sun-burnt skin, wild matted
+        beard, clothes of stitched goatskins and tatters of cloth, a
+        slightly unhinged but kind expression.
+      Secondary (small strip):
+      - Pew the blind: hooded figure with a stick, sightless milky eyes.
+      - Squire Trelawney: tall, red-faced, finely dressed, enthusiastic.
+      - Captain Smollett: stern naval officer, neat blue uniform.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: style-reference
+        hint: project anchor
+      - artifact: stevenson-style-sheet
+        hint: book palette and register
+    out: img/stevenson-character-sheet.png
+    aspect: "1:1"
+
+  - id: stevenson-cover
+    prompt_template: |
+      Full-bleed book cover for "La Isla del Tesoro" — children's
+      adaptation of Robert Louis Stevenson. Composition: a sun-bleached
+      treasure map foregrounded, slightly tilted; behind it, Jim Hawkins
+      holding a tin lantern that glows warmly; behind him, the silhouette
+      of Long John Silver standing on his single leg with crutch and
+      parrot; far distance, a tropical shoreline and the schooner
+      Hispaniola at anchor against a low golden horizon. Warm sunset
+      palette — gold, ember, deep sea-blue, parchment-cream. The title
+      "La Isla del Tesoro" appears as hand-lettered display lettering
+      across the upper third. Below it, smaller, "De Robert Louis
+      Stevenson  ·  contado para ninos".
+      {{ templates.with_title_block }}
+      {{ templates.style }}
+    refs:
+      - artifact: stevenson-style-sheet
+        hint: book palette and objects (lantern, map, ship, palms)
+      - artifact: stevenson-character-sheet
+        hint: canonical Jim Hawkins and Long John Silver
+    out: img/stevenson-cover.png
+    aspect: "3:4"
+
+  - id: stevenson-01-viejo-lobo-de-mar
+    prompt_template: |
+      Scene for chapter 1 — "El Viejo Lobo de Mar". The blind beggar
+      Pew, a hooded figure with a stick, presses a small disc of black
+      paper (the Mota Negra) into the trembling hand of Billy Bones,
+      who sits at a wooden table in the dim common room of the Almirante
+      Benbow inn. A pewter mug of rum, a brass spyglass, a flickering
+      candle. Young Jim Hawkins watches from the kitchen doorway, frozen.
+      Mood: dread, foreboding, the calm before disaster.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-01-viejo-lobo-de-mar.png
+    aspect: "3:2"
+
+  - id: stevenson-02-mapa-y-hispaniola
+    prompt_template: |
+      Scene for chapter 2 — "El Paquete de Papeles y la Hispaniola".
+      In Doctor Livesey's study, the doctor unfolds a yellowed treasure
+      map across a polished mahogany table. Squire Trelawney leans in
+      with eyes wide, a hand on the map. Jim stands at the table edge,
+      smaller, watching. Brass instruments on the side table. Warm
+      candle and hearth light. Mood: revelation, ignition.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-02-mapa-y-hispaniola.png
+    aspect: "3:2"
+
+  - id: stevenson-03-barril-de-manzanas
+    prompt_template: |
+      Scene for chapter 3 — "El Cocinero de a Bordo". On the moonlit
+      deck of the Hispaniola, Long John Silver leans on his crutch
+      whispering urgently to a young sailor, his face transformed —
+      no longer the jovial cook but a hard conspirator. Foreground,
+      tilted out of view, the rim of a half-empty apple barrel; inside
+      it, half-hidden among apples, Jim Hawkins crouches with wide
+      eyes overhearing every word. Mood: dread, eavesdropping, the
+      pivot moment.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-03-barril-de-manzanas.png
+    aspect: "3:2"
+
+  - id: stevenson-04-isla-de-pesadilla
+    prompt_template: |
+      Scene for chapter 4 — "Lo que se oye desde el barril". The
+      shoreline of Treasure Island as the Hispaniola anchors offshore.
+      Misty grey hills, dense vegetation, no welcoming palm-and-sand
+      paradise — the place looks like a nightmare. In the foreground,
+      Silver's mutineers eye the island hungrily, ignoring the captain.
+      Mood: foreboding, the island as antagonist. Avoid graphic violence;
+      hint at threat through composition and light, not blood.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-04-isla-de-pesadilla.png
+    aspect: "3:2"
+
+  - id: stevenson-05-ben-gunn
+    prompt_template: |
+      Scene for chapter 5 — "El Hombre de la Isla". Among white rocks
+      and stunted trees, the castaway Ben Gunn emerges from the brush:
+      gaunt, sun-burnt, wild-bearded, dressed in stitched goatskins and
+      cloth tatters, eyes bright with a shaky joy. Jim Hawkins faces
+      him, half-startled half-curious, a hand near the hilt of a small
+      knife. Distant smoke from a cannonball strike rises behind the
+      ridge. Mood: strange relief, the wilderness opening.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-05-ben-gunn.png
+    aspect: "3:2"
+
+  - id: stevenson-06-cable-del-ancla
+    prompt_template: |
+      Scene for chapter 6 — "El Fortin y la Bandera". Night. A small
+      coracle of leather and wood drifts beside the dark hull of the
+      Hispaniola. Jim Hawkins stands in the boat, sawing at the thick
+      anchor cable with a butcher's knife, moonlight glinting on the
+      blade. The hull looms huge above him; on deck, distant pirates
+      brawl drunkenly, oblivious. The ship begins to list with the
+      tide. Mood: solitary courage, the turning of the tide.
+      {{ templates.style }} {{ templates.no_text }}
+    refs:
+      - artifact: stevenson-style-sheet
+      - artifact: stevenson-character-sheet
+    out: img/stevenson-06-cable-del-ancla.png
+    aspect: "3:2"
