@@ -47,7 +47,10 @@ def _default_token_file() -> Path | None:
 
 
 TOKEN_FILE = _default_token_file()
-ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+ENDPOINT = os.environ.get(
+    "MOSAICO_ENDPOINT",
+    "https://openrouter.ai/api/v1/chat/completions",
+)
 DEFAULT_MODEL = "google/gemini-3.1-flash-image-preview"
 
 TARGET_PIXELS = 1024 * 1024
