@@ -252,8 +252,10 @@ def _load_pipeline():
 
 
 if __name__ == "__main__":
-    import server as _self
-    _self.PIPELINE = _load_pipeline()
+    # Load into THIS module's globals (which is __main__ when invoked as a
+    # script). Importing `server` would create a second module copy with
+    # its own PIPELINE/app, and the running app would read None forever.
+    PIPELINE = _load_pipeline()
 
     import uvicorn
     host = os.environ.get("FLUX_SHIM_HOST", "100.64.0.4")
