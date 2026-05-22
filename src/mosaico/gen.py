@@ -50,6 +50,42 @@ TOKEN_FILE = _default_token_file()
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "google/gemini-3.1-flash-image-preview"
 
+TARGET_PIXELS = 1024 * 1024
+DIM_STRIDE = 32
+DIM_MIN = 256
+DIM_MAX = 2048
+
+
+def aspect_to_dims(aspect: str) -> tuple[int, int]:
+    """Translate 'W:H' aspect string to (width, height) for klein-4B.
+
+    Returns (width, height) with both dimensions rounded to the nearest
+    multiple of 32, clamped to [256, 2048], targeting ~1024^2 total pixels.
+    The result may exceed the target by up to ~5% due to rounding; this is
+    intentional (under-rounding causes visible quality drops near borders).
+
+    Raises ValueError on malformed input or non-positive ratios.
+    """
+    import math
+
+    try:
+        w_str, h_str = aspect.split(":")
+        w_ratio = int(w_str)
+        h_ratio = int(h_str)
+    except (ValueError, AttributeError) as e:
+        raise ValueError(f"aspect must be 'W:H' with integers, got {aspect!r}") from e
+    if w_ratio <= 0 or h_ratio <= 0:
+        raise ValueError(f"aspect ratios must be positive, got {aspect!r}")
+
+    scale = math.sqrt(TARGET_PIXELS * w_ratio / h_ratio) / w_ratio
+    w = round(w_ratio * scale / DIM_STRIDE) * DIM_STRIDE
+    h = round(h_ratio * scale / DIM_STRIDE) * DIM_STRIDE
+
+    w = max(DIM_MIN, min(DIM_MAX, w))
+    h = max(DIM_MIN, min(DIM_MAX, h))
+
+    return (w, h)
+
 
 def load_token() -> str:
     env_key = os.environ.get("OPENROUTER_API_KEY")
