@@ -144,3 +144,87 @@ def build_response(img: Image.Image, model: str) -> dict:
             "cost": 0.0,
         },
     }
+
+
+# ----------------------------------------------------------------- fastapi
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+# PIPELINE is a callable: (prompt, image, width, height, guidance_scale,
+# num_inference_steps, generator) -> object with .images attribute.
+# At import time we set this to None; the __main__ block below loads the
+# real Flux2KleinPipeline. Tests overwrite this via monkeypatch.
+PIPELINE = None
+
+_pipeline_lock = asyncio.Lock()
+
+app = FastAPI(title="flux-shim", version="0.1.0")
+
+
+def _error_json(status: int, message: str, kind: str = "invalid_request_error") -> JSONResponse:
+    return JSONResponse(status_code=status, content={
+        "error": {"message": message, "type": kind},
+    })
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(req: Request):
+    try:
+        body = await req.json()
+    except Exception as e:
+        return _error_json(400, f"request body must be valid JSON: {e}")
+
+    if not isinstance(body, dict):
+        return _error_json(400, "request body must be a JSON object")
+
+    model = body.get("model", "flux-2-klein-4b")
+    messages = body.get("messages")
+    if not messages or not isinstance(messages, list):
+        return _error_json(400, "messages required")
+
+    content = messages[0].get("content")
+    if not isinstance(content, list):
+        return _error_json(400, "messages[0].content must be a list of blocks")
+
+    try:
+        prompt, refs = parse_content(content)
+    except ContentError as e:
+        return _error_json(400, str(e))
+
+    try:
+        width, height = parse_size(body.get("size"))
+    except SizeError as e:
+        return _error_json(400, str(e))
+
+    pipeline = PIPELINE
+    if pipeline is None:
+        return _error_json(503, "pipeline not loaded; check server startup logs",
+                           kind="server_error")
+
+    refs_resized = [r.resize((width, height), Image.LANCZOS) for r in refs] if refs else None
+
+    try:
+        async with _pipeline_lock:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: pipeline(
+                    prompt=prompt,
+                    image=refs_resized,
+                    width=width,
+                    height=height,
+                    guidance_scale=1.0,
+                    num_inference_steps=4,
+                    generator=None,
+                ),
+            )
+    except Exception as e:
+        ename = type(e).__name__
+        if "OutOfMemory" in ename:
+            return _error_json(503, "GPU OOM — try smaller size or unload other models",
+                               kind="server_error")
+        print(f"[flux-shim] pipeline error: {ename}: {e}", file=sys.stderr)
+        return _error_json(500, f"pipeline error: {ename}", kind="server_error")
+
+    out_img = result.images[0]
+    return build_response(out_img, model=model)
