@@ -228,3 +228,35 @@ async def chat_completions(req: Request):
 
     out_img = result.images[0]
     return build_response(out_img, model=model)
+
+
+# ----------------------------------------------------------------- loader
+
+def _load_pipeline():
+    """Load Flux2KleinPipeline. Called at __main__ time, not at import."""
+    import torch
+    from diffusers import Flux2KleinPipeline
+
+    model_id = os.environ.get("FLUX_SHIM_MODEL_PATH", "black-forest-labs/FLUX.2-klein-4B")
+    print(f"[flux-shim] loading {model_id} (bfloat16)...", file=sys.stderr, flush=True)
+    t0 = time.time()
+    pipe = Flux2KleinPipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16)
+    if not os.environ.get("FLUX_SHIM_NO_OFFLOAD"):
+        pipe.enable_model_cpu_offload()
+        print(f"[flux-shim] enabled model_cpu_offload", file=sys.stderr)
+    else:
+        pipe = pipe.to("cuda")
+        print(f"[flux-shim] pipeline pinned to cuda (no offload)", file=sys.stderr)
+    print(f"[flux-shim] pipeline ready in {time.time()-t0:.1f}s", file=sys.stderr)
+    return pipe
+
+
+if __name__ == "__main__":
+    import server as _self
+    _self.PIPELINE = _load_pipeline()
+
+    import uvicorn
+    host = os.environ.get("FLUX_SHIM_HOST", "100.64.0.4")
+    port = int(os.environ.get("FLUX_SHIM_PORT", "8000"))
+    print(f"[flux-shim] serving on http://{host}:{port}", file=sys.stderr)
+    uvicorn.run(app, host=host, port=port, log_level="info")
