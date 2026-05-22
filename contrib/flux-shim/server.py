@@ -107,3 +107,40 @@ def parse_content(blocks: list[dict]) -> tuple[str, list[Image.Image]]:
 
     prompt = " ".join(t for t in texts if t)
     return (prompt, refs)
+
+
+# ---------------------------------------------------------------- response
+
+def _png_data_url(img: Image.Image) -> str:
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
+
+
+def build_response(img: Image.Image, model: str) -> dict:
+    """Wrap a PIL image into mosaico's expected chat-completion response shape."""
+    return {
+        "id": f"flux-shim-{uuid.uuid4()}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "images": [{
+                    "type": "image_url",
+                    "image_url": {"url": _png_data_url(img)},
+                }],
+            },
+        }],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost": 0.0,
+        },
+    }
