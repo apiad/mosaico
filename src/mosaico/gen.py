@@ -123,18 +123,31 @@ def build_content(prompt: str, refs: list[Path]) -> list[dict]:
     return content
 
 
-def call_openrouter(token: str, model: str, prompt: str, refs: list[Path]) -> dict:
-    """HTTP call to OpenRouter. Imported lazily to keep test isolation cheap."""
+def call_openrouter(
+    token: str,
+    model: str,
+    prompt: str,
+    refs: list[Path],
+    size: str | None = None,
+) -> dict:
+    """HTTP call to OpenRouter (or any compatible endpoint). Imported lazily
+    to keep test isolation cheap.
+
+    `size`, when provided, is added as a top-level "size": "WxH" field. OpenRouter
+    ignores unknown fields; the flux-shim reads it as the structural width/height.
+    """
     import httpx
     # max_tokens cap: OpenRouter reserves credit at the request's token
     # ceiling. Default ~32K can hit "Payment Required" on tight budgets even
     # though image gen is priced per image. 4096 fits a base64 image + caption.
-    payload = {
+    payload: dict = {
         "model": model,
         "messages": [{"role": "user", "content": build_content(prompt, refs)}],
         "modalities": ["image", "text"],
         "max_tokens": 4096,
     }
+    if size is not None:
+        payload["size"] = size
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -215,10 +228,13 @@ def run_gen(
             )
     token = load_token()
     actual_prompt = prompt
+    size_str: str | None = None
     if aspect:
         actual_prompt = f"{aspect} aspect: {prompt}"
+        w, h = aspect_to_dims(aspect)
+        size_str = f"{w}x{h}"
     t0 = time.time()
-    resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs)
+    resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs, size=size_str)
     elapsed = time.time() - t0
     img = extract_image(resp)
 

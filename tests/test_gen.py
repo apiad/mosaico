@@ -12,7 +12,7 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
 
 def _fake_openrouter(image: bytes):
-    def _impl(token, model, prompt, refs):
+    def _impl(token, model, prompt, refs, size=None):
         b64 = base64.b64encode(image).decode("ascii")
         return {
             "choices": [{"message": {"images": [
