@@ -318,6 +318,7 @@ def run_render(
             model=artifact.resolved_model,
             seed=artifact.resolved_seed,
             aspect=artifact.resolved_aspect,
+            size=artifact.size,
         )
 
         state["artifacts"][artifact.id] = {

@@ -210,6 +210,7 @@ def run_gen(
     model: str | None,
     seed: int | None,
     aspect: str | None,
+    size: str | None = None,
 ) -> Path:
     """Pure function: do the gen. Returns the resolved out path.
 
@@ -234,7 +235,8 @@ def run_gen(
         w, h = aspect_to_dims(aspect)
         size_str = f"{w}x{h}"
     t0 = time.time()
-    resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs, size=size_str)
+    resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs,
+                          size=size if size is not None else size_str)
     elapsed = time.time() - t0
     img = extract_image(resp)
 

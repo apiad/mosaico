@@ -48,6 +48,7 @@ class Artifact:
     model: str | None = None
     seed: int | None = None
     aspect: str | None = None
+    size: str | None = None
 
     resolved_model: str = ""
     resolved_seed: int = 0
@@ -224,6 +225,7 @@ def parse_project(path: Path | str) -> Project:
             model=raw_a.get("model"),
             seed=raw_a.get("seed"),
             aspect=raw_a.get("aspect"),
+            size=raw_a.get("size"),
         )
         a.resolved_model = a.model or defaults.get(
             "model", "google/gemini-3.1-flash-image-preview"
