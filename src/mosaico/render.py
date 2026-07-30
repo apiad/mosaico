@@ -84,7 +84,23 @@ def _ref_hashes(
     """Build the `ref_hashes` list for this artifact's input hash."""
     out: list[dict] = []
     for r in artifact.refs:
-        if r.artifact is not None:
+        if r.artifact is not None and r.artifact in project.imported:
+            imp = project.imported[r.artifact]
+            if not imp.out_path.exists():
+                m.fail(
+                    f"artifact `{artifact.id}` references imported artifact "
+                    f"`{r.artifact}`, whose output {imp.out_path} does not "
+                    f"exist. Imported manifests are never rendered as a side "
+                    f"effect — render its own manifest first: "
+                    f"`mosaico render {imp.source} --save`."
+                )
+            out.append({
+                "kind": "frozen",
+                "artifact": r.artifact,
+                "hint": r.hint,
+                "file_hash": file_sha256(imp.out_path),
+            })
+        elif r.artifact is not None:
             stored = state["artifacts"].get(r.artifact, {})
             out.append({
                 "kind": "artifact",
@@ -126,9 +142,25 @@ def _input_hash_for(
 
 
 def _restrict_to_only(
-    ordered: list[Artifact], only: list[str], by_id: dict[str, Artifact]
+    ordered: list[Artifact],
+    only: list[str],
+    by_id: dict[str, Artifact],
+    imported: dict[str, object] | None = None,
 ) -> list[Artifact]:
-    """Restrict to `only` plus all transitive deps. Preserves topo order."""
+    """Restrict to `only` plus its transitive deps. Preserves topo order.
+
+    The walk stops at imported artifacts: they are satisfied by a file on
+    disk and are never render candidates, so rendering a scene can never
+    regenerate the canon it depends on.
+    """
+    imported = imported or {}
+    frozen_named = [oid for oid in only if oid in imported]
+    if frozen_named:
+        m.fail(
+            f"--only names imported artifact(s): {', '.join(frozen_named)}. "
+            f"Imported artifacts are frozen and never rendered from here. "
+            f"To regenerate one, render the manifest that owns it."
+        )
     unknown = [oid for oid in only if oid not in by_id]
     if unknown:
         m.fail(
@@ -142,7 +174,7 @@ def _restrict_to_only(
             return
         needed.add(aid)
         for r in by_id[aid].refs:
-            if r.artifact:
+            if r.artifact and r.artifact not in imported:
                 add_with_deps(r.artifact)
     for oid in only:
         add_with_deps(oid)
@@ -155,7 +187,9 @@ def _collect_ref_paths(
     """Resolve `refs[]` to actual file paths usable by run_gen."""
     paths: list[Path] = []
     for r in artifact.refs:
-        if r.artifact:
+        if r.artifact and r.artifact in project.imported:
+            paths.append(project.imported[r.artifact].out_path)
+        elif r.artifact:
             stored = state["artifacts"].get(r.artifact, {})
             out_rel = stored.get("out")
             if not out_rel:
@@ -228,7 +262,7 @@ def run_render(
 
     by_id = {a.id: a for a in project.artifacts}
     if only:
-        ordered = _restrict_to_only(ordered, only, by_id)
+        ordered = _restrict_to_only(ordered, only, by_id, project.imported)
 
     state = load_state(project.state_path)
 

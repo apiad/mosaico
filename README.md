@@ -49,6 +49,62 @@ templates:
 mosaico render project.yml --save
 ```
 
+## Freezing a canonical image set
+
+A project whose visual identity lives in reference sheets — character sheets,
+a style board, wardrobe sheets — has a hazard: those sheets are artifacts like
+any other, so editing a shared template invalidates their hash, and the next
+render that *depends* on them regenerates them as a side effect. The canon is
+destroyed by a change that never mentioned it.
+
+Split the manifest and `imports:` the canon:
+
+```yaml
+# refs.yml — the canon. Rendered only when named explicitly.
+version: 1
+name: canon
+artifacts:
+  - id: style-reference
+    prompt_template: "palette board…"
+    out: style-reference.jpg
+  - id: hermanas-sheet
+    prompt_template: "two sisters…"
+    refs: [{artifact: style-reference}]
+    out: hermanas-sheet.jpg
+```
+
+```yaml
+# chapter-02.yml — imports the canon, renders only its own artifacts.
+version: 1
+name: chapter-02
+imports:
+  - refs.yml
+artifacts:
+  - id: cover
+    prompt_template: "the cover…"
+    refs:
+      - artifact: style-reference   # resolved from refs.yml, never rendered
+      - artifact: hermanas-sheet
+    out: cover.jpg
+```
+
+Imported artifacts are **frozen**:
+
+- They never enter the render plan — not directly, and not as transitive
+  dependencies of an `--only` target.
+- They are content-addressed by their **output file**, not by the recipe that
+  produced it. Editing the canon's prompts or templates cannot invalidate
+  anything downstream; only replacing the file itself does.
+- `--only <imported-id>` is refused, naming the manifest that owns it.
+- A missing output is a hard error telling you which manifest to render.
+
+Regenerating the canon stays possible and becomes deliberate:
+
+```bash
+mosaico render refs.yml --save        # the only way to touch the canon
+mosaico render chapter-02.yml --save  # can never touch it
+```
+
 ## Migrating existing images under mosaico
 
 If you already have generated images on disk and want to bring them under
