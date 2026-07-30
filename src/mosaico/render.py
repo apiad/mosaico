@@ -25,6 +25,7 @@ import microcli as m
 
 from . import app
 
+from .cropper import cut_grid
 from .gen import run_gen
 from .schema import (
     Artifact,
@@ -44,6 +45,7 @@ class RenderSummary:
     planned: list[str] = field(default_factory=list)
     anchored: list[str] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)
+    recut: list[str] = field(default_factory=list)
 
 
 def _resolve_prompt(artifact: Artifact, project: Project) -> str:
@@ -204,15 +206,65 @@ def _collect_ref_paths(
     return paths
 
 
-def _collect_cells_state(written: Path, has_grid: bool) -> dict[str, str]:
-    """Hash all per-cell files under <written.stem>/cells/. Empty if no grid."""
+def _cells_dir(artifact: Artifact, written: Path, project: Project) -> Path:
+    """Where this artifact's cut pieces live.
+
+    `cells_out:` is relative to the project out_root, like `out:`. Without it,
+    the default is `<written.stem>/cells/` alongside the sheet.
+    """
+    if artifact.cells_out:
+        return project.out_root / artifact.cells_out
+    return written.parent / written.stem / "cells"
+
+
+def _collect_cells_state(
+    artifact: Artifact, written: Path, project: Project
+) -> dict[str, str]:
+    """Hash all per-cell files for this artifact. Empty if it has no grid."""
     cells_state: dict[str, str] = {}
-    if not has_grid:
+    if artifact.grid is None:
         return cells_state
-    cells_dir = written.parent / written.stem / "cells"
-    for cp in sorted(cells_dir.glob("*.jpg")):
+    for cp in sorted(_cells_dir(artifact, written, project).glob("*.jpg")):
         cells_state[cp.stem] = file_sha256(cp)
     return cells_state
+
+
+def _missing_cells(artifact: Artifact, written: Path, project: Project) -> list[str]:
+    """Declared cells that are absent on disk. Cutting is free — an up-to-date
+    sheet whose pieces went missing is repairable without touching the API."""
+    if artifact.grid is None or not artifact.cells:
+        return []
+    cdir = _cells_dir(artifact, written, project)
+    return [slug for slug in artifact.cells if not (cdir / f"{slug}.jpg").exists()]
+
+
+def _repair_cells(
+    artifact: Artifact, out_abs: Path, project: Project, summary: RenderSummary
+) -> bool:
+    """Re-cut an existing sheet whose declared pieces are missing.
+
+    Costs nothing — no API call — so it runs on any path that leaves the sheet
+    itself untouched: a cache hit, or an anchoring pass. Without it, declaring
+    `cells:` on an already-rendered sheet would need a full re-roll to produce
+    files the cropper can make from the bytes already on disk.
+    """
+    if not out_abs.exists():
+        return False
+    missing = _missing_cells(artifact, out_abs, project)
+    if not missing:
+        return False
+    m.info(
+        f"recut {artifact.id}: {len(missing)} cell(s) missing "
+        f"({', '.join(missing[:3])}{'…' if len(missing) > 3 else ''})"
+    )
+    cut_grid(
+        out_abs,
+        _cells_dir(artifact, out_abs, project),
+        grid=artifact.grid,
+        cells=artifact.cells,
+    )
+    summary.recut.append(artifact.id)
+    return True
 
 
 def _now_iso() -> str:
@@ -303,6 +355,9 @@ def run_render(
                 summary.pending.append(artifact.id)
                 continue
 
+            if not dry_run:
+                _repair_cells(artifact, out_abs, project, summary)
+
             output_hash = file_sha256(out_abs)
             existing = state["artifacts"].get(artifact.id, {})
             preserve = (
@@ -316,7 +371,7 @@ def run_render(
                 "seed": artifact.resolved_seed,
                 "rendered_at": preserve or _now_iso(),
                 "out": _out_rel(out_abs, project),
-                "cells": _collect_cells_state(out_abs, artifact.grid is not None),
+                "cells": _collect_cells_state(artifact, out_abs, project),
             }
             summary.anchored.append(artifact.id)
 
@@ -335,6 +390,11 @@ def run_render(
         if stored.get("input_hash") == ihash:
             summary.skipped.append(artifact.id)
             summary.planned.append(artifact.id)
+            out_abs = project.out_root / artifact.out
+            if not dry_run and _repair_cells(artifact, out_abs, project, summary):
+                state["artifacts"][artifact.id]["cells"] = _collect_cells_state(
+                    artifact, out_abs, project
+                )
             continue
 
         summary.planned.append(artifact.id)
@@ -353,6 +413,10 @@ def run_render(
             seed=artifact.resolved_seed,
             aspect=artifact.resolved_aspect,
             size=artifact.size,
+            cells_out=(
+                project.out_root / artifact.cells_out
+                if artifact.cells_out else None
+            ),
         )
 
         state["artifacts"][artifact.id] = {
@@ -362,7 +426,7 @@ def run_render(
             "seed": artifact.resolved_seed,
             "rendered_at": _now_iso(),
             "out": _out_rel(written, project),
-            "cells": _collect_cells_state(written, artifact.grid is not None),
+            "cells": _collect_cells_state(artifact, written, project),
         }
         summary.rendered.append(artifact.id)
 

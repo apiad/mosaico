@@ -45,6 +45,7 @@ class Artifact:
     refs: list[Ref] = field(default_factory=list)
     grid: tuple[int, int] | None = None
     cells: dict[str, dict] | None = None
+    cells_out: str | None = None
     model: str | None = None
     seed: int | None = None
     aspect: str | None = None
@@ -288,6 +289,19 @@ def parse_project(path: Path | str) -> Project:
                 f"artifact `{aid}`: `cells:` must be a mapping. {_TOUR_HINT}"
             )
 
+        cells_out = raw_a.get("cells_out")
+        if cells_out is not None:
+            if not isinstance(cells_out, str) or not cells_out.strip():
+                raise SchemaError(
+                    f"artifact `{aid}`: `cells_out:` must be a non-empty "
+                    f"directory path. {_TOUR_HINT}"
+                )
+            if grid is None:
+                raise SchemaError(
+                    f"artifact `{aid}`: `cells_out:` needs `grid:` — there is "
+                    f"nothing to cut without one. {_TOUR_HINT}"
+                )
+
         a = Artifact(
             id=aid,
             prompt_template=prompt,
@@ -295,6 +309,7 @@ def parse_project(path: Path | str) -> Project:
             refs=refs,
             grid=grid,
             cells=cells,
+            cells_out=cells_out,
             model=raw_a.get("model"),
             seed=raw_a.get("seed"),
             aspect=raw_a.get("aspect"),

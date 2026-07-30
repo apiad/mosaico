@@ -109,6 +109,42 @@ mosaico render refs.yml --save        # the only way to touch the canon
 mosaico render chapter-02.yml --save  # can never touch it
 ```
 
+## Cutting a sheet into named pieces
+
+`grid: [rows, cols]` cuts a generated sheet into per-cell files. Two shapes:
+
+- **The sheet is the deliverable** and the cells are a convenience — omit
+  `cells:`, take the default `cell-rN-cM.jpg` names under `<out-stem>/cells/`.
+- **The cells are the deliverable** and something downstream reads them from a
+  fixed path — name them with `cells:` and place them with `cells_out:`.
+
+```yaml
+  - id: glossary-sheet
+    prompt_template: "a 4x3 reference grid…"
+    grid: [4, 3]
+    cells:                          # slug -> position on the grid
+      plumb-line:  {row: 1, col: 1}
+      flying-buttress: {row: 2, col: 1}
+    cells_out: img/glossary         # out_root-relative, like `out:`
+    out: img/glossary-sheet.jpg
+```
+
+Two properties worth knowing:
+
+**Cutting never calls the API.** If the sheet is up to date but declared cells
+are missing on disk, mosaico re-cuts them from the bytes it already has and
+reports them as `recut`. Losing the pieces can't break a downstream build, and
+can't cost a re-roll to fix.
+
+**`cells:` is part of the input hash; `cells_out:` is not.** Adding `cells:` to
+an already-rendered sheet marks it stale, so a plain `--save` would regenerate
+the image to produce files the cropper can cut for free. Anchor instead — the
+anchor pass cuts as it goes:
+
+```bash
+mosaico render project.yml --bootstrap    # no API call, pieces cut
+```
+
 ## Migrating existing images under mosaico
 
 If you already have generated images on disk and want to bring them under

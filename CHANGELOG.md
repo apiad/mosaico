@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.0] - 2026-07-29
+
+### Added
+
+- **`cells_out:` places cut pieces where the consumer needs them.** `grid:`
+  wrote its cells to `<out-stem>/cells/` and nowhere else. That fits Pattern B
+  (the sheet is the deliverable, cells are a side effect) but not Pattern A
+  (the cells ARE the deliverable and a downstream build reads them from a
+  fixed path). `cells_out:` is out_root-relative, like `out:`. Declaring it
+  without `grid:` is a parse error — there would be nothing to cut.
+
+- **Cutting repairs itself, without an API call.** When a sheet is a cache hit
+  (or is being anchored by `--bootstrap`) but its declared cells are missing on
+  disk, mosaico re-cuts them from the sheet it already has and reports them as
+  `recut` in the summary. Cutting is deterministic and free; there was no
+  reason for missing pieces to be unfixable except by a paid re-roll.
+
+  This closes the same hole 0.4.1 half-closed, found the same way: the
+  enciclopedia's chapter glossary. The sheet had `grid:` but no `cells:`, so
+  the pieces landed as `cell-rN-cM.jpg` while the book's LaTeX asked for
+  `glosario/<slug>.jpg`. The PDF died with `Unable to load picture` — an error
+  that names neither the glossary nor the manifest.
+
+### Note
+
+`cells:` is part of the input hash and `cells_out:` deliberately is not.
+Adding `cells:` to an already-rendered sheet therefore marks it stale: use
+`--bootstrap` to anchor the new hash instead of paying for a re-render, since
+the anchor pass now cuts as it goes.
+
 ## [0.4.1] - 2026-05-06
 
 ### Fixed

@@ -211,6 +211,7 @@ def run_gen(
     seed: int | None,
     aspect: str | None,
     size: str | None = None,
+    cells_out: Path | None = None,
 ) -> Path:
     """Pure function: do the gen. Returns the resolved out path.
 
@@ -219,6 +220,11 @@ def run_gen(
     with a grid, the cropper falls back to its default `cell-rR-cC` naming.
     The flat-list ergonomic form (CLI's `--cell-names`) is converted to this
     dict shape at the call site (see `gen()` CLI below).
+
+    `cells_out` overrides where the cut pieces land. Default is
+    `<out-stem>/cells/`, which suits Pattern B (cells are a side effect).
+    Pattern A consumers — where the *cells* are the deliverable and something
+    downstream expects them at a fixed path — point it at that path directly.
     """
     # Validate refs eagerly so a missing path fails before the API call.
     for r in refs:
@@ -250,7 +256,7 @@ def run_gen(
           file=sys.stderr)
 
     if grid is not None:
-        cells_dir = out_path.parent / out_path.stem / "cells"
+        cells_dir = cells_out or (out_path.parent / out_path.stem / "cells")
         cut_grid(out_path, cells_dir, grid=grid, cells=cells)
 
     return out_path

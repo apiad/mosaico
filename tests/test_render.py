@@ -7,7 +7,7 @@ import pytest
 from mosaico import render as render_mod
 
 
-def _mock_generator(prompt, out, refs, grid, cells, model, seed, aspect, size=None):
+def _mock_generator(prompt, out, refs, grid, cells, model, seed, aspect, **kw):
     """Deterministic mock: writes prompt+seed sha256 as JPEG-magic bytes."""
     h = hashlib.sha256(f"{prompt}|{seed}".encode()).digest()
     out_path = out.with_suffix(".jpg")
@@ -73,7 +73,7 @@ def test_render_force_upstream_cascades_when_output_changes(
         project_yaml, monkeypatch):
     counter = {"n": 0}
 
-    def changing_generator(prompt, out, refs, grid, cells, model, seed, aspect, size=None):
+    def changing_generator(prompt, out, refs, grid, cells, model, seed, aspect, **kw):
         counter["n"] += 1
         out_path = out.with_suffix(".jpg")
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +303,7 @@ artifacts:
 
     captured = {}
 
-    def capturing_gen(prompt, out, refs, grid, cells, model, seed, aspect, size=None):
+    def capturing_gen(prompt, out, refs, grid, cells, model, seed, aspect, **kw):
         captured["grid"] = grid
         captured["cells"] = cells
         out_path = out.with_suffix(".jpg")
