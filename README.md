@@ -88,6 +88,10 @@ artifacts:
     out: cover.jpg
 ```
 
+Imported manifests also contribute their `templates:` — the shared prompt
+vocabulary — so chapter manifests don't duplicate it. A local template that
+shadows an imported name is a parse error.
+
 Imported artifacts are **frozen**:
 
 - They never enter the render plan — not directly, and not as transitive

@@ -205,3 +205,61 @@ class TestFrozenHashing:
         cover = next(a for a in proj.artifacts if a.id == "cap-cover")
         with pytest.raises(SystemExit):
             _input_hash_for(cover, proj, {"artifacts": {}})
+
+
+class TestImportedTemplates:
+    """Chapter manifests reuse the canon's shared prompt vocabulary."""
+
+    def test_imported_templates_are_available(self, tmp_path: Path, canon: Path):
+        cap = _write(tmp_path / "c" / "c.yml", """
+version: 1
+name: c
+imports:
+  - ../canon/refs.yml
+artifacts:
+  - id: scene
+    prompt_template: "a scene. {{ templates.style }}"
+    out: scene.jpg
+""")
+        proj = parse_project(cap)
+        assert proj.templates["style"] == "soft watercolor"
+
+    def test_local_template_may_not_shadow_an_imported_one(
+        self, tmp_path: Path, canon: Path
+    ):
+        cap = _write(tmp_path / "c" / "c.yml", """
+version: 1
+name: c
+imports:
+  - ../canon/refs.yml
+templates:
+  style: something else
+artifacts:
+  - id: scene
+    prompt_template: "a scene. {{ templates.style }}"
+    out: scene.jpg
+""")
+        with pytest.raises(SchemaError, match="style"):
+            parse_project(cap)
+
+    def test_local_templates_coexist_with_imported(
+        self, tmp_path: Path, canon: Path
+    ):
+        cap = _write(tmp_path / "c" / "c.yml", """
+version: 1
+name: c
+imports:
+  - ../canon/refs.yml
+templates:
+  guide_canon: a specific guide
+artifacts:
+  - id: scene
+    prompt_template: "{{ templates.guide_canon }} {{ templates.style }}"
+    out: scene.jpg
+""")
+        proj = parse_project(cap)
+        scene = proj.artifacts[0]
+        from mosaico.schema import expand_templates
+        resolved = expand_templates(scene.prompt_template, proj.templates)
+        assert "a specific guide" in resolved
+        assert "soft watercolor" in resolved

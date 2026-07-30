@@ -172,6 +172,7 @@ def parse_project(path: Path | str) -> Project:
         )
 
     imported: dict[str, Imported] = {}
+    imported_templates: dict[str, str] = {}
     raw_imports = raw.get("imports") or []
     if not isinstance(raw_imports, list):
         raise SchemaError(
@@ -191,6 +192,21 @@ def parse_project(path: Path | str) -> Project:
                 f"{_TOUR_HINT}"
             )
         sub = parse_project(imp_path)
+        for tname, tbody in sub.templates.items():
+            if tname in templates:
+                raise SchemaError(
+                    f"template `{tname}` in {yaml_path} shadows a template of "
+                    f"the same name imported from {imp_path}. Rename one of "
+                    f"them — imported templates are shared vocabulary. "
+                    f"{_TOUR_HINT}"
+                )
+            if tname in imported_templates:
+                raise SchemaError(
+                    f"template `{tname}` is provided by more than one import "
+                    f"in {yaml_path}. Names must be unique across imports. "
+                    f"{_TOUR_HINT}"
+                )
+            imported_templates[tname] = tbody
         for sa in sub.artifacts:
             if sa.id in imported:
                 raise SchemaError(
@@ -203,6 +219,8 @@ def parse_project(path: Path | str) -> Project:
                 out_path=(sub.out_root / sa.out).resolve(),
                 source=imp_path,
             )
+
+    templates = {**imported_templates, **templates}
 
     artifacts: list[Artifact] = []
     seen_ids: set[str] = set()
