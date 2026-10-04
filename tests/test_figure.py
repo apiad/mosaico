@@ -1,11 +1,11 @@
-"""mosaico figure: T-pose skeleton geometry and the CLI writing an image."""
+"""mosaico figure: T-pose silhouette geometry and the CLI writing an image."""
 import math
 import subprocess
 import sys
 
 import pytest
 
-from mosaico.figure import ARM, LEG, POSES, SHOULDER_X, SHOULDER_Y, skeleton
+from mosaico.figure import BODIES, POSES, skeleton
 
 pytest.importorskip("tesserax")
 
@@ -14,29 +14,39 @@ def _by(segments, name, side):
     return next(s for s in segments if s["name"] == name and s["side"] == side)
 
 
-def test_t_pose_arms_are_horizontal_and_full_length():
-    segs = skeleton(POSES["t"])
-    reach = sum(length for _, length, _ in ARM)
+@pytest.mark.parametrize("body", list(BODIES))
+def test_t_pose_reaches_measured_span_at_shoulder_height(body):
+    segs = skeleton(POSES["t"], body)
     for side in (+1, -1):
-        hand = _by(segs, "hand", side)
-        assert hand["end"][1] == pytest.approx(SHOULDER_Y)
-        assert hand["end"][0] == pytest.approx(side * (SHOULDER_X + reach))
+        upper, hand = _by(segs, "upper_arm", side), _by(segs, "hand", side)
+        assert hand["end"][1] == pytest.approx(upper["start"][1])
+        assert abs(hand["end"][0]) == pytest.approx(BODIES[body]["span"] / 2)
+
+
+@pytest.mark.parametrize("body", list(BODIES))
+def test_feet_stand_on_the_floor(body):
+    segs = skeleton(POSES["t"], body)
+    for side in (+1, -1):
+        assert _by(segs, "foot", side)["end"][1] == pytest.approx(1.0, abs=1e-3)
 
 
 def test_t_pose_is_mirror_symmetric():
     segs = skeleton(POSES["t"])
-    for name, _, _ in ARM + LEG:
-        left, right = _by(segs, name, +1), _by(segs, name, -1)
-        assert left["end"][0] == pytest.approx(-right["end"][0])
-        assert left["end"][1] == pytest.approx(right["end"][1])
+    for s in segs:
+        if s["side"] == +1:
+            twin = _by(segs, s["name"], -1)
+            assert s["end"][0] == pytest.approx(-twin["end"][0])
+            assert s["end"][1] == pytest.approx(twin["end"][1])
 
 
-def test_segments_keep_their_lengths():
+def test_segments_are_chained():
     segs = skeleton(POSES["t"])
-    lengths = {name: length for name, length, _ in ARM + LEG}
+    for a, b in zip(segs, segs[1:]):
+        if a["side"] == b["side"] and b["name"] not in ("upper_arm", "thigh"):
+            assert a["end"] == pytest.approx(b["start"])
     for s in segs:
         (ax, ay), (bx, by) = s["start"], s["end"]
-        assert math.hypot(bx - ax, by - ay) == pytest.approx(lengths[s["name"]])
+        assert math.hypot(bx - ax, by - ay) > 0
 
 
 def test_wrong_angle_count_is_rejected():
@@ -45,27 +55,30 @@ def test_wrong_angle_count_is_rejected():
         skeleton(pose)
 
 
-def test_cli_writes_png_of_requested_size(tmp_path):
+def _run(*args):
+    return subprocess.run(
+        [sys.executable, "-m", "mosaico.cli", "figure", *args],
+        capture_output=True, text=True,
+    )
+
+
+def test_cli_writes_flat_silhouette_of_requested_size(tmp_path):
     from PIL import Image
 
     out = tmp_path / "t.png"
-    result = subprocess.run(
-        [sys.executable, "-m", "mosaico.cli", "figure", "--out", str(out), "--size", "512"],
-        capture_output=True, text=True,
-    )
+    result = _run("--out", str(out), "--size", "512")
     assert result.returncode == 0, result.stderr
-    img = Image.open(out)
+    img = Image.open(out).convert("RGB")
     assert img.size == (512, 512)
-    # White corners, non-white centre: the figure is drawn and framed.
-    assert img.convert("RGB").getpixel((2, 2)) == (255, 255, 255)
-    assert img.convert("RGB").getpixel((256, 200)) != (255, 255, 255)
+    assert img.getpixel((2, 2)) == (255, 255, 255)
+    assert img.getpixel((256, 200)) == (0, 0, 0)  # the chest
 
 
-def test_cli_rejects_unknown_pose(tmp_path):
-    result = subprocess.run(
-        [sys.executable, "-m", "mosaico.cli", "figure", "--pose", "nope",
-         "--out", str(tmp_path / "x.png")],
-        capture_output=True, text=True,
-    )
+@pytest.mark.parametrize("flag,value,msg", [
+    ("--pose", "nope", "unknown pose"),
+    ("--body", "nope", "unknown body"),
+])
+def test_cli_rejects_unknown_names(tmp_path, flag, value, msg):
+    result = _run(flag, value, "--out", str(tmp_path / "x.png"))
     assert result.returncode != 0
-    assert "unknown pose" in result.stdout + result.stderr
+    assert msg in result.stdout + result.stderr

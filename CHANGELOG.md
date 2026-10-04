@@ -4,12 +4,13 @@
 
 ### Added
 
-- **`mosaico figure` draws a posed mannequin as a template sheet.** A humanoid
-  built from balls (head, joints) and rectangles (limbs, torso) at adult
-  proportions of 7.5 heads, posed by forward kinematics and drawn with
-  tesserax on a white square. Pass it as a ref so the generated character
-  takes the same pose. Only the T-pose exists so far. Needs the `figure`
-  extra (`mosaico[figure]`, Python 3.12+), because tesserax requires 3.12.
+- **`mosaico figure` draws a posed human silhouette as a template sheet.**
+  Proportions are the ANSUR II means (US Army, 2012) as fractions of stature,
+  male or female via `--body`; the figure is posed by forward kinematics and
+  drawn with tesserax as one flat black shape on a white square. Pass it as a
+  ref so the generated character takes the same pose. Only the T-pose exists
+  so far. Needs the `figure` extra (`mosaico[figure]`, Python 3.12+), because
+  tesserax requires 3.12.
 
 ## [0.5.0] - 2026-07-29
 
