@@ -9,7 +9,9 @@
   male or female via `--body`; the figure is posed by forward kinematics and
   drawn with tesserax as one flat black shape on a white square. Pass it as a
   ref so the generated character takes the same pose. Only the T-pose exists
-  so far. Needs the `figure` extra (`mosaico[figure]`, Python 3.12+), because
+  so far. `--proportions` re-proportions the body into a style preset
+  (heroic, disney, anime, fashion, child, toddler, chibi), and lists of
+  presets or bodies draw a labelled comparison sheet. Needs the `figure` extra (`mosaico[figure]`, Python 3.12+), because
   tesserax requires 3.12.
 
 ## [0.5.0] - 2026-07-29

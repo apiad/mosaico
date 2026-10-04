@@ -26,8 +26,9 @@ Discoverability:
     mosaico figure --list-poses
     mosaico figure --out t-pose.png
     mosaico figure --pose t --body female --out t-pose.svg --size 1536
+    mosaico figure --proportions disney --body female --out princess.png
+    mosaico figure --proportions all --body all --labels --out sheet.png
 """
-from __future__ import annotations
 
 import math
 from pathlib import Path
@@ -53,6 +54,7 @@ BODIES: dict[str, dict[str, float]] = {
         "head_breadth": 0.088,
         "neck_width": 0.072,
         "biacromial_breadth": 0.237,
+        "bideltoid_breadth": 0.291,
         "chest_breadth": 0.165,
         "waist_breadth": 0.186,
         "hip_breadth": 0.197,
@@ -81,6 +83,7 @@ BODIES: dict[str, dict[str, float]] = {
         "head_breadth": 0.091,
         "neck_width": 0.065,
         "biacromial_breadth": 0.224,
+        "bideltoid_breadth": 0.277,
         "chest_breadth": 0.165,
         "waist_breadth": 0.184,
         "hip_breadth": 0.217,
@@ -99,6 +102,64 @@ BODIES: dict[str, dict[str, float]] = {
     },
 }
 
+# Stylised proportion presets, applied on top of the measured body. Widths
+# are in head heights, as figure-drawing canons give them. A missing key
+# keeps the measured value, so "real" is the identity.
+#   heads       total height in head heights
+#   crotch      crotch height as a fraction of stature
+#   shoulders   outer shoulder width (bideltoid), in heads
+#   waist, hips breadths, in heads
+#   limbs       limb and neck thickness, times the measured one
+#   head_ratio  head width / head height
+#   extremities hand and foot size, times the measured one
+#   reach       hanging fingertips, as a fraction down the leg from the
+#               crotch (measured: about 0.19; negative is above the crotch)
+# Head counts follow published canons (Loomis's 8-head ideal, 8.5-9 heroic,
+# 9-10 fashion, 7-8 anime, 2-3 chibi, about 6 heads at six years and 4-5 for
+# a toddler). Widths outside "real" and the disney column are estimates.
+_KIDS = {"shoulders": 1.7, "waist": 1.3, "hips": 1.3, "limbs": 1.05,
+         "head_ratio": 0.82, "heads": 6.0, "crotch": 0.44}
+PROPORTIONS: dict[str, dict[str, dict[str, float]]] = {
+    "real": {"male": {}, "female": {}},
+    "heroic": {
+        "male": {"heads": 8.5, "crotch": 0.50, "shoulders": 2.8, "waist": 1.25,
+                 "hips": 1.5, "limbs": 1.15, "head_ratio": 0.70, "extremities": 1.05},
+        "female": {"heads": 8.5, "crotch": 0.50, "shoulders": 2.1, "waist": 1.0,
+                   "hips": 1.75, "limbs": 0.95, "head_ratio": 0.70},
+    },
+    "disney": {
+        "male": {"heads": 7.0, "crotch": 0.48, "shoulders": 3.0, "waist": 1.6,
+                 "hips": 1.5, "limbs": 1.1, "head_ratio": 0.80, "extremities": 1.1},
+        "female": {"heads": 6.5, "crotch": 0.48, "shoulders": 1.9, "waist": 0.85,
+                   "hips": 1.7, "limbs": 0.8, "head_ratio": 0.80, "extremities": 0.8},
+    },
+    "anime": {
+        "male": {"heads": 7.5, "crotch": 0.52, "shoulders": 2.2, "waist": 1.2,
+                 "hips": 1.4, "limbs": 0.8, "head_ratio": 0.78, "extremities": 0.9},
+        "female": {"heads": 7.5, "crotch": 0.52, "shoulders": 1.8, "waist": 0.95,
+                   "hips": 1.6, "limbs": 0.75, "head_ratio": 0.78, "extremities": 0.85},
+    },
+    "fashion": {
+        "male": {"heads": 9.0, "crotch": 0.54, "shoulders": 2.3, "waist": 1.2,
+                 "hips": 1.4, "limbs": 0.8, "head_ratio": 0.68},
+        "female": {"heads": 9.0, "crotch": 0.54, "shoulders": 1.9, "waist": 1.0,
+                   "hips": 1.5, "limbs": 0.75, "head_ratio": 0.68, "extremities": 0.9},
+    },
+    "child": {"male": _KIDS, "female": _KIDS},
+    "toddler": {
+        sex: {"heads": 4.5, "crotch": 0.38, "shoulders": 1.5, "waist": 1.3,
+              "hips": 1.25, "limbs": 1.4, "head_ratio": 0.88, "extremities": 1.1,
+              "reach": 0.0}
+        for sex in ("male", "female")
+    },
+    "chibi": {
+        sex: {"heads": 2.5, "crotch": 0.30, "shoulders": 1.3, "waist": 1.1,
+              "hips": 1.1, "limbs": 1.8, "head_ratio": 0.95, "extremities": 1.2,
+              "reach": -0.15}
+        for sex in ("male", "female")
+    },
+}
+
 POSES: dict[str, dict[str, tuple[float, ...]]] = {
     "t": {
         "arm_l": (90, 0, 0),
@@ -112,6 +173,65 @@ UNIT = 1000.0  # SVG units per stature
 BACKGROUND = "#ffffff"
 FILL = "#000000"
 
+_TORSO_HEIGHTS = ("cervicale_height", "acromial_height", "axilla_height",
+                  "waist_height", "trochanter_height")
+_LEG_HEIGHTS = ("knee_height", "ankle_height")
+_LIMB_WIDTHS = ("neck_width", "biceps_width", "forearm_width", "wrist_width",
+                "knee_width", "calf_width", "ankle_width")
+
+
+def dims(body: str = "male", proportions: str = "real") -> dict[str, float]:
+    """Body dimensions in stature units, re-proportioned by a style preset.
+
+    Heights between chin and crotch are stretched linearly to fit the new
+    torso, heights below the crotch to fit the new legs. Arms are resized so
+    the hanging fingertips sit at the same fraction of the leg as measured.
+    """
+    b = dict(BODIES[body], head_height=HEAD_HEIGHT)
+    # Arms reach the measured span in the T-pose; summed end to end the
+    # segments overshoot it by about 11%.
+    reach = b["span"] / 2 - b["biacromial_breadth"] / 2
+    k = reach / (b["upper_arm"] + b["forearm"] + b["hand"])
+    for seg in ("upper_arm", "forearm", "hand"):
+        b[seg] *= k
+
+    arm0 = b["upper_arm"] + b["forearm"] + b["hand"]
+    root0 = 1 - b["acromial_height"] + b["biceps_width"] / 2
+    leg0 = b["crotch_height"]
+    fingertip = (root0 + arm0 - (1 - leg0)) / leg0  # fraction down the leg
+
+    s = PROPORTIONS[proportions][body]
+    h0, h = HEAD_HEIGHT, 1 / s.get("heads", 1 / HEAD_HEIGHT)
+    c0, c = b["crotch_height"], s.get("crotch", b["crotch_height"])
+    torso = ((1 - c) - h) / ((1 - c0) - h0)
+    for key in _TORSO_HEIGHTS:
+        b[key] = 1 - (h + ((1 - b[key]) - h0) * torso)
+    for key in _LEG_HEIGHTS:
+        b[key] *= c / c0
+    b["crotch_height"], b["head_height"] = c, h
+
+    ratio = s.get("head_ratio", b["head_breadth"] / h0)
+    b["head_breadth"] = ratio * h
+    if "shoulders" in s:
+        widen = s["shoulders"] * h / b["bideltoid_breadth"]
+        for key in ("biacromial_breadth", "bideltoid_breadth", "chest_breadth"):
+            b[key] *= widen
+    if "waist" in s:
+        b["waist_breadth"] = s["waist"] * h
+    if "hips" in s:
+        b["hip_breadth"] = s["hips"] * h
+    for key in _LIMB_WIDTHS:
+        b[key] *= s.get("limbs", 1.0)
+    root = 1 - b["acromial_height"] + b["biceps_width"] / 2
+    arm = (1 - c) + s.get("reach", fingertip) * c - root
+    for seg in ("upper_arm", "forearm", "hand"):
+        b[seg] *= arm / arm0
+    extremities = s.get("extremities", 1.0)
+    b["hand"] *= extremities
+    for key in ("hand_breadth", "foot_breadth"):
+        b[key] *= extremities
+    return b
+
 
 def _chains(b: dict[str, float]) -> dict[str, list[tuple[str, float, list]]]:
     """Limb chains: (segment, length, width profile) from the root joint out.
@@ -119,8 +239,6 @@ def _chains(b: dict[str, float]) -> dict[str, list[tuple[str, float, list]]]:
     A width profile is a list of (t, width) with t in [0, 1] along the
     segment, so a limb can taper or bulge.
     """
-    reach = b["span"] / 2 - b["biacromial_breadth"] / 2
-    k = reach / (b["upper_arm"] + b["forearm"] + b["hand"])
     hip_y, knee_y, ankle_y = (
         1 - b["trochanter_height"],
         1 - b["knee_height"],
@@ -128,11 +246,11 @@ def _chains(b: dict[str, float]) -> dict[str, list[tuple[str, float, list]]]:
     )
     return {
         "arm": [
-            ("upper_arm", k * b["upper_arm"],
+            ("upper_arm", b["upper_arm"],
              [(0, b["biceps_width"]), (1, b["forearm_width"])]),
-            ("forearm", k * b["forearm"],
+            ("forearm", b["forearm"],
              [(0, b["forearm_width"]), (1, b["wrist_width"])]),
-            ("hand", k * b["hand"],
+            ("hand", b["hand"],
              [(0, b["hand_breadth"]), (1, b["hand_breadth"])]),
         ],
         "leg": [
@@ -157,14 +275,16 @@ def _roots(b: dict[str, float]) -> dict[str, tuple[float, float]]:
     }
 
 
-def skeleton(pose: dict[str, tuple[float, ...]], body: str = "male") -> list[dict]:
+def skeleton(
+    pose: dict[str, tuple[float, ...]], body: str = "male", proportions: str = "real"
+) -> list[dict]:
     """Forward kinematics: pose angles -> limb segments with endpoints.
 
     Returns one dict per segment with `name`, `side` (+1 = figure's left,
     drawn on the viewer's right), `start`, `end` (in stature units) and
     `profile`. Torso and head are fixed; only the limbs move.
     """
-    b = BODIES[body]
+    b = dims(body, proportions)
     chains, roots = _chains(b), _roots(b)
     segments = []
     for limb, chain in chains.items():
@@ -217,81 +337,131 @@ def _torso_outline(b: dict[str, float]) -> list[tuple[float, float]]:
     return half + [(-x, y) for x, y in reversed(half[:-1])]
 
 
-def silhouette(pose_name: str, body: str = "male") -> dict:
+def silhouette(pose_name: str, body: str = "male", proportions: str = "real") -> dict:
     """All shapes of the figure, in stature units.
 
     Returns `polygons` (lists of points), `circles` ((x, y, r) joint caps
     that round off the limb ends) and `ellipses` ((x, y, rx, ry), the head).
     """
-    b = BODIES[body]
-    segments = skeleton(POSES[pose_name], body)
-    neck_top = HEAD_HEIGHT * 0.8
+    b = dims(body, proportions)
+    segments = skeleton(POSES[pose_name], body, proportions)
+    h = b["head_height"]
+    neck_bottom = 1 - b["cervicale_height"] + 0.01
     neck = [
-        (-b["neck_width"] / 2, neck_top),
-        (b["neck_width"] / 2, neck_top),
-        (b["neck_width"] / 2, 1 - b["cervicale_height"] + 0.01),
-        (-b["neck_width"] / 2, 1 - b["cervicale_height"] + 0.01),
+        (-b["neck_width"] / 2, h * 0.8),
+        (b["neck_width"] / 2, h * 0.8),
+        (b["neck_width"] / 2, neck_bottom),
+        (-b["neck_width"] / 2, neck_bottom),
     ]
     polygons = [_torso_outline(b), neck] + [_limb_outline(s) for s in segments]
     circles = []
     for s in segments:
         if s["name"] in ("upper_arm", "forearm", "hand", "shin", "foot"):
             circles.append((*s["start"], s["profile"][0][1] / 2))
-    head = (0.0, HEAD_HEIGHT / 2, b["head_breadth"] / 2, HEAD_HEIGHT / 2)
+    head = (0.0, h / 2, b["head_breadth"] / 2, h / 2)
     return {"polygons": polygons, "circles": circles, "ellipses": [head]}
 
 
-def build_canvas(pose_name: str, size: int, body: str = "male", margin: float = 0.05):
-    """Draw the posed silhouette centred on a square `size`×`size` canvas."""
-    from tesserax import Canvas, Circle, Ellipse, Path as TPath, Point, Rect
-    from tesserax.color import hex
-    from tesserax.core import Bounds
-
-    shapes = silhouette(pose_name, body)
+def _extent(shapes: dict) -> tuple[float, float, float, float]:
     xs = [x for poly in shapes["polygons"] for x, _ in poly]
     ys = [y for poly in shapes["polygons"] for _, y in poly] + [0.0]
     xs += [x + s * r for x, _, r in shapes["circles"] for s in (-1, 1)]
-    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-    side_len = max(x1 - x0, y1 - y0) * (1 + 2 * margin)
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    view = Bounds(
-        (cx - side_len / 2) * UNIT, (cy - side_len / 2) * UNIT,
-        side_len * UNIT, side_len * UNIT,
-    )
+    xs += [x + s * rx for x, _, rx, _ in shapes["ellipses"] for s in (-1, 1)]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def build_sheet(
+    figures: list[tuple[str, str, str]],
+    columns: int,
+    size: int,
+    labels: bool = False,
+    margin: float = 0.05,
+):
+    """Draw (pose, body, proportions) figures on a grid, one per cell.
+
+    Every figure has the same stature, so the sheet compares proportions.
+    With one figure and no labels this is a single centred template. The
+    canvas is `size` pixels per cell side.
+    """
+    from tesserax import Canvas, Circle, Ellipse, Path as TPath, Point, Rect, Text
+    from tesserax.color import hex
+    from tesserax.core import Bounds
+
+    all_shapes = [silhouette(pose, body, prop) for pose, body, prop in figures]
+    extents = [_extent(s) for s in all_shapes]
+    label_h = 0.12 if labels else 0.0
+    cell = max(max(x1 - x0, y1 - y0) for x0, x1, y0, y1 in extents) * (1 + 2 * margin)
+    cell_h = cell + label_h
+    rows = -(-len(figures) // columns)
+    width, height = columns * cell, rows * cell_h
     fill = hex(FILL)
 
-    canvas = Canvas(size, size)
+    scale = size / cell
+    canvas = Canvas(width * scale, height * scale)
     with canvas:
-        Rect(view.width, view.height, fill=hex(BACKGROUND), stroke=hex(BACKGROUND)).move_to(
-            Point(view.x + view.width / 2, view.y + view.height / 2)
+        Rect(width * UNIT, height * UNIT, fill=hex(BACKGROUND), stroke=hex(BACKGROUND)).move_to(
+            Point(width * UNIT / 2, height * UNIT / 2)
         )
-        for poly in shapes["polygons"]:
-            path = TPath(fill=fill, stroke=fill).jump_to(poly[0][0] * UNIT, poly[0][1] * UNIT)
-            for x, y in poly[1:]:
-                path.line_to(x * UNIT, y * UNIT)
-            path.close()
-        for x, y, r in shapes["circles"]:
-            Circle(r * UNIT, fill=fill, stroke=fill).move_to(Point(x * UNIT, y * UNIT))
-        for x, y, rx, ry in shapes["ellipses"]:
-            Ellipse(rx * UNIT, ry * UNIT, fill=fill, stroke=fill).move_to(Point(x * UNIT, y * UNIT))
-    canvas.fit(bounds=view, crop=False)
+        for i, (shapes, (x0, x1, y0, y1)) in enumerate(zip(all_shapes, extents)):
+            row, col = divmod(i, columns)
+            dx = col * cell + cell / 2 - (x0 + x1) / 2
+            dy = row * cell_h + cell / 2 - (y0 + y1) / 2
+
+            def pt(x: float, y: float) -> Point:
+                return Point((x + dx) * UNIT, (y + dy) * UNIT)
+
+            for poly in shapes["polygons"]:
+                start = pt(*poly[0])
+                path = TPath(fill=fill, stroke=fill).jump_to(start.x, start.y)
+                for x, y in poly[1:]:
+                    q = pt(x, y)
+                    path.line_to(q.x, q.y)
+                path.close()
+            for x, y, r in shapes["circles"]:
+                Circle(r * UNIT, fill=fill, stroke=fill).move_to(pt(x, y))
+            for x, y, rx, ry in shapes["ellipses"]:
+                Ellipse(rx * UNIT, ry * UNIT, fill=fill, stroke=fill).move_to(pt(x, y))
+            if labels:
+                pose, body, prop = figures[i]
+                heads = 1 / dims(body, prop)["head_height"]
+                Text(
+                    f"{prop} · {body} · {heads:.1f} heads",
+                    size=0.045 * UNIT, fill=hex("#374151"),
+                ).move_to(Point((col * cell + cell / 2) * UNIT,
+                                (row * cell_h + cell + label_h / 3) * UNIT))
+    canvas.fit(bounds=Bounds(0, 0, width * UNIT, height * UNIT), crop=False)
     return canvas
+
+
+def _names(value: str, table: dict, what: str) -> list[str]:
+    names = list(table) if value == "all" else [v.strip() for v in value.split(",")]
+    for name in names:
+        if name not in table:
+            m.fail(f"unknown {what} {name!r}; available: {', '.join(table)}, all")
+    return names
 
 
 @app.command
 def figure(
     pose: Annotated[str, "Pose name (see --list-poses)"] = "t",
-    body: Annotated[str, "Body proportions: male or female (ANSUR II means)"] = "male",
+    body: Annotated[str, "male, female, a comma list, or all"] = "male",
+    proportions: Annotated[
+        str, "real, heroic, disney, anime, fashion, child, toddler, chibi; a comma list, or all"
+    ] = "real",
     out: Annotated[str, "Output path (.png or .svg)"] = "figure.png",
-    size: Annotated[int, "Square canvas side in pixels"] = 1024,
+    size: Annotated[int, "Pixels per figure cell side"] = 1024,
+    labels: Annotated[bool, "Write the preset, body and head count under each figure"] = False,
     list_poses: Annotated[bool, "Print the available poses and exit"] = False,
 ):
-    """Draw a human silhouette in a given pose, as a template sheet.
+    """Draw human silhouettes in a pose, as a template sheet.
 
-    Builds the figure from measured adult proportions (ANSUR II means), poses
-    it by forward kinematics, and writes one flat black shape on a white
-    square. Pass the result as a ref to `mosaico gen` to get a character in
-    that pose. Local only: no API call, no --save needed.
+    Builds each figure from measured adult proportions (ANSUR II means),
+    re-proportions it with a style preset, poses it by forward kinematics,
+    and writes flat black shapes on white. One body and one preset give a
+    single square template; lists give a grid with one row per body and one
+    column per preset, all at the same stature. Pass a single figure as a
+    ref to `mosaico gen` to get a character in that pose. Local only: no API
+    call, no --save needed.
     """
     if list_poses:
         for name in POSES:
@@ -299,12 +469,13 @@ def figure(
         return
     if pose not in POSES:
         m.fail(f"unknown pose {pose!r}; available: {', '.join(POSES)}")
-    if body not in BODIES:
-        m.fail(f"unknown body {body!r}; available: {', '.join(BODIES)}")
+    bodies = _names(body, BODIES, "body")
+    presets = _names(proportions, PROPORTIONS, "proportions")
     if Path(out).suffix.lower() not in (".png", ".svg"):
         m.fail(f"--out must end in .png or .svg, got {out!r}")
 
-    canvas = build_canvas(pose, size, body)
+    figures = [(pose, b, p) for b in bodies for p in presets]
+    canvas = build_sheet(figures, columns=len(presets), size=size, labels=labels)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out)
-    print(f"wrote {out} ({size}×{size}, pose {pose}, body {body})")
+    print(f"wrote {out} ({int(canvas.width)}×{int(canvas.height)}, {len(figures)} figure(s))")

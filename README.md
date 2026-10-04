@@ -154,6 +154,18 @@ them with `--body male|female`. The figure is one flat black shape on white,
 so the model copies the pose and nothing else. It runs locally, with no API
 call.
 
+`--proportions` re-proportions the measured body into a style: `heroic`,
+`disney`, `anime`, `fashion`, `child`, `toddler` or `chibi` (`real` is the
+default). Each preset sets the height in heads, the leg length, the shoulder,
+waist and hip widths, limb thickness, head shape and hand and foot size; the
+table and its sources are in `src/mosaico/figure.py`. A list of presets or
+bodies, or `all`, draws a comparison sheet, one row per body and one column
+per preset, all at the same stature:
+
+```bash
+mosaico figure --proportions all --body all --labels --size 400 --out sheet.png
+```
+
 ```bash
 uv add 'mosaico[figure]'          # tesserax + resvg, Python 3.12+
 mosaico figure --list-poses

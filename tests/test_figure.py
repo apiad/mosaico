@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from mosaico.figure import BODIES, POSES, skeleton
+from mosaico.figure import BODIES, HEAD_HEIGHT, POSES, PROPORTIONS, dims, skeleton
 
 pytest.importorskip("tesserax")
 
@@ -82,3 +82,38 @@ def test_cli_rejects_unknown_names(tmp_path, flag, value, msg):
     result = _run(flag, value, "--out", str(tmp_path / "x.png"))
     assert result.returncode != 0
     assert msg in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("body", list(BODIES))
+def test_real_preset_keeps_measured_heights(body):
+    d = dims(body, "real")
+    for key, value in BODIES[body].items():
+        if key.endswith("_height") or key.endswith("_breadth") or key.endswith("_width"):
+            assert d[key] == pytest.approx(value), key
+    assert d["head_height"] == pytest.approx(HEAD_HEIGHT)
+
+
+@pytest.mark.parametrize("preset", [p for p in PROPORTIONS if p != "real"])
+@pytest.mark.parametrize("body", list(BODIES))
+def test_presets_hit_their_head_count_and_stand_on_the_floor(preset, body):
+    style = PROPORTIONS[preset][body]
+    assert 1 / dims(body, preset)["head_height"] == pytest.approx(style["heads"])
+    segs = skeleton(POSES["t"], body, preset)
+    assert _by(segs, "foot", +1)["end"][1] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_disney_widens_men_and_narrows_women_waists():
+    assert dims("male", "disney")["bideltoid_breadth"] > dims("male", "real")["bideltoid_breadth"]
+    assert dims("female", "disney")["waist_breadth"] < dims("female", "real")["waist_breadth"]
+
+
+def test_cli_sheet_has_one_cell_per_body_and_preset(tmp_path):
+    from PIL import Image
+
+    out = tmp_path / "sheet.png"
+    result = _run("--proportions", "real,chibi", "--body", "all", "--labels",
+                  "--size", "200", "--out", str(out))
+    assert result.returncode == 0, result.stderr
+    w, h = Image.open(out).size
+    assert w == pytest.approx(400, abs=2)
+    assert h > 400  # two rows plus label strips
