@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`mosaico figure` draws a posed mannequin as a template sheet.** A humanoid
+  built from balls (head, joints) and rectangles (limbs, torso) at adult
+  proportions of 7.5 heads, posed by forward kinematics and drawn with
+  tesserax on a white square. Pass it as a ref so the generated character
+  takes the same pose. Only the T-pose exists so far. Needs the `figure`
+  extra (`mosaico[figure]`, Python 3.12+), because tesserax requires 3.12.
+
 ## [0.5.0] - 2026-07-29
 
 ### Added

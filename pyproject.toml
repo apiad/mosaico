@@ -28,6 +28,10 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+figure = [
+    "resvg-py>=0.2 ; python_full_version >= '3.12'",
+    "tesserax>=0.12 ; python_full_version >= '3.12'",
+]
 
 [project.scripts]
 mosaico = "mosaico.cli:main"

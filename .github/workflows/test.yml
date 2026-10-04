@@ -1,0 +1,16 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      # --no-sources: pyproject points microcli at a sibling checkout for local dev.
+      - run: uv sync --no-sources --all-extras
+      - run: uv run --no-sync pytest

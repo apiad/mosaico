@@ -145,6 +145,26 @@ anchor pass cuts as it goes:
 mosaico render project.yml --bootstrap    # no API call, pieces cut
 ```
 
+## Pose template sheets
+
+`mosaico figure` draws a humanoid mannequin in a pose, as an image to pass as
+a ref. Proportions follow an adult canon of 7.5 heads; the figure's left limbs
+are light grey and its right limbs dark grey so a model can tell them apart.
+It runs locally, with no API call.
+
+```bash
+uv add 'mosaico[figure]'          # tesserax + resvg, Python 3.12+
+mosaico figure --list-poses
+mosaico figure --pose t --out refs/t-pose.png --size 1024
+```
+
+```yaml
+  - id: hero-t-pose
+    prompt_template: "the hero, full body, in exactly the pose of the reference mannequin"
+    refs: [{path: refs/t-pose.png, hint: "pose reference only; ignore its colours and shapes"}]
+    out: hero-t-pose.jpg
+```
+
 ## Migrating existing images under mosaico
 
 If you already have generated images on disk and want to bring them under
