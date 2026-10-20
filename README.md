@@ -49,6 +49,27 @@ templates:
 mosaico render project.yml --save
 ```
 
+## Models on OpenRouter's images endpoint
+
+By default mosaico calls `/api/v1/chat/completions` with image modalities
+(Gemini, GPT image models). Models that only answer on `/api/v1/images`,
+such as `black-forest-labs/flux-3-image-klein`, need `api: images`, set per
+artifact or in `defaults:`:
+
+```yaml
+defaults:
+  model: black-forest-labs/flux-3-image-klein
+  api: images
+  resolution: 1K      # optional tier: 512, 1K, 2K, 4K...
+  aspect: "3:2"
+```
+
+With `api: images`, refs go as `input_references`, the aspect as
+`aspect_ratio` (not baked into the prompt) and no seed is sent, because
+some of these models reject it. On the CLI: `mosaico gen "<prompt>" --api
+images --resolution 2K --model <slug> --save=true`. Set
+`MOSAICO_IMAGES_ENDPOINT` to point it elsewhere.
+
 ## Migrating existing images under mosaico
 
 If you already have generated images on disk and want to bring them under
