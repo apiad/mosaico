@@ -25,6 +25,7 @@ import microcli as m
 
 from . import app
 
+from .cropper import cut_grid
 from .gen import run_gen
 from .schema import (
     Artifact,
@@ -44,6 +45,7 @@ class RenderSummary:
     planned: list[str] = field(default_factory=list)
     anchored: list[str] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)
+    recut: list[str] = field(default_factory=list)
 
 
 def _resolve_prompt(artifact: Artifact, project: Project) -> str:
@@ -84,7 +86,23 @@ def _ref_hashes(
     """Build the `ref_hashes` list for this artifact's input hash."""
     out: list[dict] = []
     for r in artifact.refs:
-        if r.artifact is not None:
+        if r.artifact is not None and r.artifact in project.imported:
+            imp = project.imported[r.artifact]
+            if not imp.out_path.exists():
+                m.fail(
+                    f"artifact `{artifact.id}` references imported artifact "
+                    f"`{r.artifact}`, whose output {imp.out_path} does not "
+                    f"exist. Imported manifests are never rendered as a side "
+                    f"effect — render its own manifest first: "
+                    f"`mosaico render {imp.source} --save`."
+                )
+            out.append({
+                "kind": "frozen",
+                "artifact": r.artifact,
+                "hint": r.hint,
+                "file_hash": file_sha256(imp.out_path),
+            })
+        elif r.artifact is not None:
             stored = state["artifacts"].get(r.artifact, {})
             out.append({
                 "kind": "artifact",
@@ -131,9 +149,25 @@ def _input_hash_for(
 
 
 def _restrict_to_only(
-    ordered: list[Artifact], only: list[str], by_id: dict[str, Artifact]
+    ordered: list[Artifact],
+    only: list[str],
+    by_id: dict[str, Artifact],
+    imported: dict[str, object] | None = None,
 ) -> list[Artifact]:
-    """Restrict to `only` plus all transitive deps. Preserves topo order."""
+    """Restrict to `only` plus its transitive deps. Preserves topo order.
+
+    The walk stops at imported artifacts: they are satisfied by a file on
+    disk and are never render candidates, so rendering a scene can never
+    regenerate the canon it depends on.
+    """
+    imported = imported or {}
+    frozen_named = [oid for oid in only if oid in imported]
+    if frozen_named:
+        m.fail(
+            f"--only names imported artifact(s): {', '.join(frozen_named)}. "
+            f"Imported artifacts are frozen and never rendered from here. "
+            f"To regenerate one, render the manifest that owns it."
+        )
     unknown = [oid for oid in only if oid not in by_id]
     if unknown:
         m.fail(
@@ -147,7 +181,7 @@ def _restrict_to_only(
             return
         needed.add(aid)
         for r in by_id[aid].refs:
-            if r.artifact:
+            if r.artifact and r.artifact not in imported:
                 add_with_deps(r.artifact)
     for oid in only:
         add_with_deps(oid)
@@ -160,7 +194,9 @@ def _collect_ref_paths(
     """Resolve `refs[]` to actual file paths usable by run_gen."""
     paths: list[Path] = []
     for r in artifact.refs:
-        if r.artifact:
+        if r.artifact and r.artifact in project.imported:
+            paths.append(project.imported[r.artifact].out_path)
+        elif r.artifact:
             stored = state["artifacts"].get(r.artifact, {})
             out_rel = stored.get("out")
             if not out_rel:
@@ -175,15 +211,65 @@ def _collect_ref_paths(
     return paths
 
 
-def _collect_cells_state(written: Path, has_grid: bool) -> dict[str, str]:
-    """Hash all per-cell files under <written.stem>/cells/. Empty if no grid."""
+def _cells_dir(artifact: Artifact, written: Path, project: Project) -> Path:
+    """Where this artifact's cut pieces live.
+
+    `cells_out:` is relative to the project out_root, like `out:`. Without it,
+    the default is `<written.stem>/cells/` alongside the sheet.
+    """
+    if artifact.cells_out:
+        return project.out_root / artifact.cells_out
+    return written.parent / written.stem / "cells"
+
+
+def _collect_cells_state(
+    artifact: Artifact, written: Path, project: Project
+) -> dict[str, str]:
+    """Hash all per-cell files for this artifact. Empty if it has no grid."""
     cells_state: dict[str, str] = {}
-    if not has_grid:
+    if artifact.grid is None:
         return cells_state
-    cells_dir = written.parent / written.stem / "cells"
-    for cp in sorted(cells_dir.glob("*.jpg")):
+    for cp in sorted(_cells_dir(artifact, written, project).glob("*.jpg")):
         cells_state[cp.stem] = file_sha256(cp)
     return cells_state
+
+
+def _missing_cells(artifact: Artifact, written: Path, project: Project) -> list[str]:
+    """Declared cells that are absent on disk. Cutting is free — an up-to-date
+    sheet whose pieces went missing is repairable without touching the API."""
+    if artifact.grid is None or not artifact.cells:
+        return []
+    cdir = _cells_dir(artifact, written, project)
+    return [slug for slug in artifact.cells if not (cdir / f"{slug}.jpg").exists()]
+
+
+def _repair_cells(
+    artifact: Artifact, out_abs: Path, project: Project, summary: RenderSummary
+) -> bool:
+    """Re-cut an existing sheet whose declared pieces are missing.
+
+    Costs nothing — no API call — so it runs on any path that leaves the sheet
+    itself untouched: a cache hit, or an anchoring pass. Without it, declaring
+    `cells:` on an already-rendered sheet would need a full re-roll to produce
+    files the cropper can make from the bytes already on disk.
+    """
+    if not out_abs.exists():
+        return False
+    missing = _missing_cells(artifact, out_abs, project)
+    if not missing:
+        return False
+    m.info(
+        f"recut {artifact.id}: {len(missing)} cell(s) missing "
+        f"({', '.join(missing[:3])}{'…' if len(missing) > 3 else ''})"
+    )
+    cut_grid(
+        out_abs,
+        _cells_dir(artifact, out_abs, project),
+        grid=artifact.grid,
+        cells=artifact.cells,
+    )
+    summary.recut.append(artifact.id)
+    return True
 
 
 def _now_iso() -> str:
@@ -233,7 +319,7 @@ def run_render(
 
     by_id = {a.id: a for a in project.artifacts}
     if only:
-        ordered = _restrict_to_only(ordered, only, by_id)
+        ordered = _restrict_to_only(ordered, only, by_id, project.imported)
 
     state = load_state(project.state_path)
 
@@ -274,6 +360,9 @@ def run_render(
                 summary.pending.append(artifact.id)
                 continue
 
+            if not dry_run:
+                _repair_cells(artifact, out_abs, project, summary)
+
             output_hash = file_sha256(out_abs)
             existing = state["artifacts"].get(artifact.id, {})
             preserve = (
@@ -287,7 +376,7 @@ def run_render(
                 "seed": artifact.resolved_seed,
                 "rendered_at": preserve or _now_iso(),
                 "out": _out_rel(out_abs, project),
-                "cells": _collect_cells_state(out_abs, artifact.grid is not None),
+                "cells": _collect_cells_state(artifact, out_abs, project),
             }
             summary.anchored.append(artifact.id)
 
@@ -306,6 +395,11 @@ def run_render(
         if stored.get("input_hash") == ihash:
             summary.skipped.append(artifact.id)
             summary.planned.append(artifact.id)
+            out_abs = project.out_root / artifact.out
+            if not dry_run and _repair_cells(artifact, out_abs, project, summary):
+                state["artifacts"][artifact.id]["cells"] = _collect_cells_state(
+                    artifact, out_abs, project
+                )
             continue
 
         summary.planned.append(artifact.id)
@@ -326,6 +420,10 @@ def run_render(
             size=artifact.size,
             api=artifact.resolved_api or "chat",
             resolution=artifact.resolved_resolution,
+            cells_out=(
+                project.out_root / artifact.cells_out
+                if artifact.cells_out else None
+            ),
         )
 
         state["artifacts"][artifact.id] = {
@@ -335,7 +433,7 @@ def run_render(
             "seed": artifact.resolved_seed,
             "rendered_at": _now_iso(),
             "out": _out_rel(written, project),
-            "cells": _collect_cells_state(written, artifact.grid is not None),
+            "cells": _collect_cells_state(artifact, written, project),
         }
         summary.rendered.append(artifact.id)
 

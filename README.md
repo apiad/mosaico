@@ -69,6 +69,101 @@ With `api: images`, refs go as `input_references`, the aspect as
 some of these models reject it. On the CLI: `mosaico gen "<prompt>" --api
 images --resolution 2K --model <slug> --save=true`. Set
 `MOSAICO_IMAGES_ENDPOINT` to point it elsewhere.
+## Freezing a canonical image set
+
+A project whose visual identity lives in reference sheets — character sheets,
+a style board, wardrobe sheets — has a hazard: those sheets are artifacts like
+any other, so editing a shared template invalidates their hash, and the next
+render that *depends* on them regenerates them as a side effect. The canon is
+destroyed by a change that never mentioned it.
+
+Split the manifest and `imports:` the canon:
+
+```yaml
+# refs.yml — the canon. Rendered only when named explicitly.
+version: 1
+name: canon
+artifacts:
+  - id: style-reference
+    prompt_template: "palette board…"
+    out: style-reference.jpg
+  - id: hermanas-sheet
+    prompt_template: "two sisters…"
+    refs: [{artifact: style-reference}]
+    out: hermanas-sheet.jpg
+```
+
+```yaml
+# chapter-02.yml — imports the canon, renders only its own artifacts.
+version: 1
+name: chapter-02
+imports:
+  - refs.yml
+artifacts:
+  - id: cover
+    prompt_template: "the cover…"
+    refs:
+      - artifact: style-reference   # resolved from refs.yml, never rendered
+      - artifact: hermanas-sheet
+    out: cover.jpg
+```
+
+Imported manifests also contribute their `templates:` — the shared prompt
+vocabulary — so chapter manifests don't duplicate it. A local template that
+shadows an imported name is a parse error.
+
+Imported artifacts are **frozen**:
+
+- They never enter the render plan — not directly, and not as transitive
+  dependencies of an `--only` target.
+- They are content-addressed by their **output file**, not by the recipe that
+  produced it. Editing the canon's prompts or templates cannot invalidate
+  anything downstream; only replacing the file itself does.
+- `--only <imported-id>` is refused, naming the manifest that owns it.
+- A missing output is a hard error telling you which manifest to render.
+
+Regenerating the canon stays possible and becomes deliberate:
+
+```bash
+mosaico render refs.yml --save        # the only way to touch the canon
+mosaico render chapter-02.yml --save  # can never touch it
+```
+
+## Cutting a sheet into named pieces
+
+`grid: [rows, cols]` cuts a generated sheet into per-cell files. Two shapes:
+
+- **The sheet is the deliverable** and the cells are a convenience — omit
+  `cells:`, take the default `cell-rN-cM.jpg` names under `<out-stem>/cells/`.
+- **The cells are the deliverable** and something downstream reads them from a
+  fixed path — name them with `cells:` and place them with `cells_out:`.
+
+```yaml
+  - id: glossary-sheet
+    prompt_template: "a 4x3 reference grid…"
+    grid: [4, 3]
+    cells:                          # slug -> position on the grid
+      plumb-line:  {row: 1, col: 1}
+      flying-buttress: {row: 2, col: 1}
+    cells_out: img/glossary         # out_root-relative, like `out:`
+    out: img/glossary-sheet.jpg
+```
+
+Two properties worth knowing:
+
+**Cutting never calls the API.** If the sheet is up to date but declared cells
+are missing on disk, mosaico re-cuts them from the bytes it already has and
+reports them as `recut`. Losing the pieces can't break a downstream build, and
+can't cost a re-roll to fix.
+
+**`cells:` is part of the input hash; `cells_out:` is not.** Adding `cells:` to
+an already-rendered sheet marks it stale, so a plain `--save` would regenerate
+the image to produce files the cropper can cut for free. Anchor instead — the
+anchor pass cuts as it goes:
+
+```bash
+mosaico render project.yml --bootstrap    # no API call, pieces cut
+```
 
 ## Migrating existing images under mosaico
 

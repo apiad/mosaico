@@ -45,6 +45,7 @@ class Artifact:
     refs: list[Ref] = field(default_factory=list)
     grid: tuple[int, int] | None = None
     cells: dict[str, dict] | None = None
+    cells_out: str | None = None
     model: str | None = None
     seed: int | None = None
     aspect: str | None = None
@@ -60,6 +61,21 @@ class Artifact:
 
 
 @dataclass
+class Imported:
+    """An artifact owned by another manifest: referenceable, never rendered.
+
+    Frozen deps are content-addressed by their *output file*, not by the
+    recipe that produced them. Editing the owning manifest's prompts or
+    templates therefore cannot invalidate — or silently regenerate — anything
+    downstream. Only replacing the file itself does.
+    """
+
+    id: str
+    out_path: Path
+    source: Path
+
+
+@dataclass
 class Project:
     name: str
     out_root: Path
@@ -67,6 +83,7 @@ class Project:
     yaml_path: Path
     templates: dict[str, str]
     artifacts: list[Artifact]
+    imported: dict[str, Imported] = field(default_factory=dict)
 
 
 _TEMPLATE_RE = re.compile(r"\{\{\s*templates\.([A-Za-z0-9_]+)\s*\}\}")
@@ -159,6 +176,57 @@ def parse_project(path: Path | str) -> Project:
             f"{_TOUR_HINT}"
         )
 
+    imported: dict[str, Imported] = {}
+    imported_templates: dict[str, str] = {}
+    raw_imports = raw.get("imports") or []
+    if not isinstance(raw_imports, list):
+        raise SchemaError(
+            f"`imports:` must be a list of manifest paths in {yaml_path}. "
+            f"{_TOUR_HINT}"
+        )
+    for rel in raw_imports:
+        imp_path = (yaml_path.parent / str(rel)).resolve()
+        if not imp_path.exists():
+            raise SchemaError(
+                f"`imports:` entry `{rel}` in {yaml_path} resolves to "
+                f"{imp_path}, which does not exist. {_TOUR_HINT}"
+            )
+        if imp_path == yaml_path:
+            raise SchemaError(
+                f"`imports:` entry `{rel}` in {yaml_path} imports itself. "
+                f"{_TOUR_HINT}"
+            )
+        sub = parse_project(imp_path)
+        for tname, tbody in sub.templates.items():
+            if tname in templates:
+                raise SchemaError(
+                    f"template `{tname}` in {yaml_path} shadows a template of "
+                    f"the same name imported from {imp_path}. Rename one of "
+                    f"them — imported templates are shared vocabulary. "
+                    f"{_TOUR_HINT}"
+                )
+            if tname in imported_templates:
+                raise SchemaError(
+                    f"template `{tname}` is provided by more than one import "
+                    f"in {yaml_path}. Names must be unique across imports. "
+                    f"{_TOUR_HINT}"
+                )
+            imported_templates[tname] = tbody
+        for sa in sub.artifacts:
+            if sa.id in imported:
+                raise SchemaError(
+                    f"imported artifact id `{sa.id}` is provided by more than "
+                    f"one manifest ({imported[sa.id].source} and {imp_path}). "
+                    f"Ids must be unique across imports. {_TOUR_HINT}"
+                )
+            imported[sa.id] = Imported(
+                id=sa.id,
+                out_path=(sub.out_root / sa.out).resolve(),
+                source=imp_path,
+            )
+
+    templates = {**imported_templates, **templates}
+
     artifacts: list[Artifact] = []
     seen_ids: set[str] = set()
     for i, raw_a in enumerate(raw_artifacts):
@@ -174,6 +242,12 @@ def parse_project(path: Path | str) -> Project:
         if aid in seen_ids:
             raise SchemaError(
                 f"duplicate artifact id `{aid}` in {yaml_path}. {_TOUR_HINT}"
+            )
+        if aid in imported:
+            raise SchemaError(
+                f"artifact `{aid}` in {yaml_path} shadows an imported "
+                f"artifact of the same id from {imported[aid].source}. "
+                f"Rename one of them. {_TOUR_HINT}"
             )
         seen_ids.add(aid)
 
@@ -219,6 +293,19 @@ def parse_project(path: Path | str) -> Project:
                 f"artifact `{aid}`: `cells:` must be a mapping. {_TOUR_HINT}"
             )
 
+        cells_out = raw_a.get("cells_out")
+        if cells_out is not None:
+            if not isinstance(cells_out, str) or not cells_out.strip():
+                raise SchemaError(
+                    f"artifact `{aid}`: `cells_out:` must be a non-empty "
+                    f"directory path. {_TOUR_HINT}"
+                )
+            if grid is None:
+                raise SchemaError(
+                    f"artifact `{aid}`: `cells_out:` needs `grid:` — there is "
+                    f"nothing to cut without one. {_TOUR_HINT}"
+                )
+
         a = Artifact(
             id=aid,
             prompt_template=prompt,
@@ -226,6 +313,7 @@ def parse_project(path: Path | str) -> Project:
             refs=refs,
             grid=grid,
             cells=cells,
+            cells_out=cells_out,
             model=raw_a.get("model"),
             seed=raw_a.get("seed"),
             aspect=raw_a.get("aspect"),
@@ -258,6 +346,7 @@ def parse_project(path: Path | str) -> Project:
         yaml_path=yaml_path,
         templates=templates,
         artifacts=artifacts,
+        imported=imported,
     )
 
 
@@ -277,11 +366,15 @@ def topo_sort(project: Project) -> list[Artifact]:
         for r in a.refs:
             if r.artifact is None:
                 continue
+            if r.artifact in project.imported:
+                # Frozen: satisfied by a file on disk, not by a render step.
+                continue
             if r.artifact not in by_id:
+                known = sorted(by_id) + sorted(project.imported)
                 raise SchemaError(
                     f"artifact `{a.id}` references unknown artifact "
                     f"`{r.artifact}`. Known ids: "
-                    f"{', '.join(sorted(by_id))}. {_TOUR_HINT}"
+                    f"{', '.join(known)}. {_TOUR_HINT}"
                 )
             deps[a.id].append(r.artifact)
             rev[r.artifact].append(a.id)
