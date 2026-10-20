@@ -140,6 +140,11 @@ def _input_hash_for(
         "cells_spec": artifact.cells,
         "ref_hashes": _ref_hashes(artifact, project, state),
     }
+    # Only when set, so manifests that predate these fields keep their hashes.
+    if artifact.resolved_api is not None:
+        inputs["api"] = artifact.resolved_api
+    if artifact.resolved_resolution is not None:
+        inputs["resolution"] = artifact.resolved_resolution
     return compute_input_hash(inputs), inputs
 
 
@@ -413,6 +418,8 @@ def run_render(
             seed=artifact.resolved_seed,
             aspect=artifact.resolved_aspect,
             size=artifact.size,
+            api=artifact.resolved_api or "chat",
+            resolution=artifact.resolved_resolution,
             cells_out=(
                 project.out_root / artifact.cells_out
                 if artifact.cells_out else None

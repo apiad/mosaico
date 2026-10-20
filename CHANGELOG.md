@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **OpenRouter `/api/v1/images` endpoint.** New `api:` field (`chat`, the
+  default, or `images`) on artifacts and in `defaults:`, and `--api` on
+  `mosaico gen`. With `images`, refs are sent as `input_references`, the
+  aspect as `aspect_ratio`, the optional new `resolution:` /
+  `--resolution` tier as `resolution`, and no seed. The response's
+  `data[0].b64_json` is decoded. `MOSAICO_IMAGES_ENDPOINT` overrides the
+  URL. `api` and `resolution` enter the cache input hash only when set,
+  so existing projects keep their cached renders.
+
 ## [0.5.0] - 2026-07-29
 
 ### Added

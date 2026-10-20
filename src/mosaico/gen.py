@@ -51,6 +51,10 @@ ENDPOINT = os.environ.get(
     "MOSAICO_ENDPOINT",
     "https://openrouter.ai/api/v1/chat/completions",
 )
+IMAGES_ENDPOINT = os.environ.get(
+    "MOSAICO_IMAGES_ENDPOINT",
+    "https://openrouter.ai/api/v1/images",
+)
 DEFAULT_MODEL = "google/gemini-3.1-flash-image-preview"
 
 TARGET_PIXELS = 1024 * 1024
@@ -166,6 +170,60 @@ def call_openrouter(
         return r.json()
 
 
+def call_openrouter_images(
+    token: str,
+    model: str,
+    prompt: str,
+    refs: list[Path],
+    aspect: str | None = None,
+    resolution: str | None = None,
+) -> dict:
+    """HTTP call to OpenRouter's /api/v1/images endpoint.
+
+    Refs go as `input_references`, the aspect as `aspect_ratio`. No seed:
+    some models on this endpoint reject it with HTTP 400.
+    """
+    import httpx
+    payload: dict = {"model": model, "prompt": prompt}
+    if aspect is not None:
+        payload["aspect_ratio"] = aspect
+    if resolution is not None:
+        payload["resolution"] = resolution
+    if refs:
+        payload["input_references"] = [
+            {"type": "image_url", "image_url": {"url": encode_image(r)}}
+            for r in refs
+        ]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/apiad/workspace",
+        "X-Title": "mosaico gen",
+    }
+    with httpx.Client(timeout=300) as client:
+        r = client.post(IMAGES_ENDPOINT, headers=headers, json=payload)
+        if r.status_code >= 400:
+            m.fail(
+                f"OpenRouter images HTTP {r.status_code}: {r.text[:500]}. "
+                f"Common fixes: check token in {TOKEN_FILE}, retry on 429, "
+                f"verify model slug `{model}` supports /api/v1/images, drop "
+                f"`resolution`/`aspect` values the model does not support. "
+                f"Run `mosaico gen --tour` for the full happy path."
+            )
+        return r.json()
+
+
+def extract_images_api_image(resp: dict) -> bytes:
+    data = resp.get("data") or []
+    if data and data[0].get("b64_json"):
+        return base64.b64decode(data[0]["b64_json"])
+    m.fail(
+        f"no image found in OpenRouter images response. First 2KB of payload: "
+        f"{json.dumps(resp, indent=2)[:2000]}."
+    )
+    raise SystemExit(2)
+
+
 def extract_image(resp: dict) -> bytes:
     msg = resp["choices"][0]["message"]
     for img in (msg.get("images") or []):
@@ -211,6 +269,8 @@ def run_gen(
     seed: int | None,
     aspect: str | None,
     size: str | None = None,
+    api: str = "chat",
+    resolution: str | None = None,
     cells_out: Path | None = None,
 ) -> Path:
     """Pure function: do the gen. Returns the resolved out path.
@@ -221,6 +281,9 @@ def run_gen(
     The flat-list ergonomic form (CLI's `--cell-names`) is converted to this
     dict shape at the call site (see `gen()` CLI below).
 
+    `api` picks the OpenRouter endpoint: "chat" (/chat/completions with image
+    modalities) or "images" (/images, which takes `resolution` and sends the
+    aspect natively instead of baking it into the prompt).
     `cells_out` overrides where the cut pieces land. Default is
     `<out-stem>/cells/`, which suits Pattern B (cells are a side effect).
     Pattern A consumers — where the *cells* are the deliverable and something
@@ -234,17 +297,22 @@ def run_gen(
                 f"Check `--ref` paths are correct relative to your CWD."
             )
     token = load_token()
-    actual_prompt = prompt
-    size_str: str | None = None
-    if aspect:
-        actual_prompt = f"{aspect} aspect: {prompt}"
-        w, h = aspect_to_dims(aspect)
-        size_str = f"{w}x{h}"
     t0 = time.time()
-    resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs,
-                          size=size if size is not None else size_str)
+    if api == "images":
+        resp = call_openrouter_images(token, model or DEFAULT_MODEL, prompt, refs,
+                                      aspect=aspect, resolution=resolution)
+        img = extract_images_api_image(resp)
+    else:
+        actual_prompt = prompt
+        size_str: str | None = None
+        if aspect:
+            actual_prompt = f"{aspect} aspect: {prompt}"
+            w, h = aspect_to_dims(aspect)
+            size_str = f"{w}x{h}"
+        resp = call_openrouter(token, model or DEFAULT_MODEL, actual_prompt, refs,
+                               size=size if size is not None else size_str)
+        img = extract_image(resp)
     elapsed = time.time() - t0
-    img = extract_image(resp)
 
     actual_ext = detect_extension(img)
     out_path = out.with_suffix(actual_ext) if out.suffix.lower() != actual_ext else out
@@ -272,6 +340,8 @@ def gen(
     aspect: Annotated[str, "Aspect ratio baked into prompt (16:9, 9:16, 1:1, ...)"] = "",
     grid: Annotated[str, "Grid layout RxC (e.g. 3x3) for sheet + auto-cut"] = "",
     cell_names: Annotated[str, "Comma-separated cell names (default cell-rR-cC)"] = "",
+    api: Annotated[str, "OpenRouter endpoint: chat (default) or images"] = "chat",
+    resolution: Annotated[str, "Resolution tier for --api images (1K, 2K, ...)"] = "",
     save: Annotated[bool, "Actually call the API (without --save, only validates)"] = False,
 ):
     """Generate one image from a prompt via OpenRouter.
@@ -285,6 +355,8 @@ def gen(
     cells are a side effect.
     """
     refs = [Path(p.strip()) for p in ref.split(",") if p.strip()] if ref else []
+    if api not in ("chat", "images"):
+        m.fail(f"invalid --api `{api}`; expected `chat` or `images`.")
     grid_tuple: tuple[int, int] | None = None
     if grid:
         try:
@@ -323,7 +395,7 @@ def gen(
 
     if not save:
         m.info(f"Draft: would generate {grid_tuple or '1 image'} from prompt "
-               f"({len(prompt)} chars), {len(refs)} ref(s), model={model}")
+               f"({len(prompt)} chars), {len(refs)} ref(s), model={model}, api={api}")
         m.info(f"Output -> {out} (ext auto-corrected)")
         m.info(f"Rerun with --save to actually call the API.")
         return
@@ -337,5 +409,7 @@ def gen(
         model=model or None,
         seed=seed or None,
         aspect=aspect or None,
+        api=api,
+        resolution=resolution or None,
     )
     m.ok(f"image generated: {out}")

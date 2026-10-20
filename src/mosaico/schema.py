@@ -50,10 +50,14 @@ class Artifact:
     seed: int | None = None
     aspect: str | None = None
     size: str | None = None
+    api: str | None = None
+    resolution: str | None = None
 
     resolved_model: str = ""
     resolved_seed: int = 0
     resolved_aspect: str = ""
+    resolved_api: str | None = None
+    resolved_resolution: str | None = None
 
 
 @dataclass
@@ -314,6 +318,8 @@ def parse_project(path: Path | str) -> Project:
             seed=raw_a.get("seed"),
             aspect=raw_a.get("aspect"),
             size=raw_a.get("size"),
+            api=raw_a.get("api"),
+            resolution=raw_a.get("resolution"),
         )
         a.resolved_model = a.model or defaults.get(
             "model", "google/gemini-3.1-flash-image-preview"
@@ -322,6 +328,15 @@ def parse_project(path: Path | str) -> Project:
         # Coerce aspect to string: YAML parses bare `4:3` as sexagesimal int 243.
         raw_aspect = a.aspect if a.aspect is not None else defaults.get("aspect", "1:1")
         a.resolved_aspect = _coerce_aspect(raw_aspect)
+        # None means "not set": api/resolution enter the input hash only when
+        # set, so projects written before they existed keep their cache.
+        a.resolved_api = a.api or defaults.get("api")
+        if a.resolved_api not in (None, "chat", "images"):
+            raise SchemaError(
+                f"artifact `{aid}`: `api:` must be `chat` or `images`, got "
+                f"{a.resolved_api!r}. {_TOUR_HINT}"
+            )
+        a.resolved_resolution = a.resolution or defaults.get("resolution")
         artifacts.append(a)
 
     return Project(
